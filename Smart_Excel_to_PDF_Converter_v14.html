@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Excel to PDF Converter</title>
+
+<!-- Internet is required for these CDN libraries when opening this HTML file. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<style>
+:root{
+  --bg:#f4f7fb; --card:#fff; --ink:#263238; --muted:#6b7280;
+  --accent:#e8751a; --accent2:#f3a35c; --line:#d9e0e8;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:linear-gradient(135deg,#f7fafc,#edf3f8);color:var(--ink)}
+.app{max-width:1280px;margin:auto;padding:24px}
+h1{margin:0 0 6px}.sub{color:var(--muted);margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin:16px 0;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.drop{border:2px dashed #b6c2d0;border-radius:14px;padding:34px;text-align:center;background:#fbfdff;cursor:pointer}
+.drop.drag{border-color:var(--accent);background:#fff7ef}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+input,select{padding:9px;border:1px solid var(--line);border-radius:8px}
+.check{display:flex;align-items:center;gap:8px;margin:7px 0}
+button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:pointer;margin-right:8px}
+.primary{background:var(--accent);color:#fff}.secondary{background:#e9eef4}.success{background:#4f8b6d;color:#fff}
+#status{white-space:pre-line;background:#eef4fa;padding:12px;border-radius:8px;display:none;margin-top:12px}
+#status.show{display:block}.hidden{display:none!important}
+.tablewrap{overflow:auto;max-height:440px}
+#analysis{border-collapse:collapse;width:100%;min-width:850px}
+#analysis th,#analysis td{border:1px solid var(--line);padding:8px;font-size:13px}
+#analysis th{background:#f2f5f8}
+#progress{width:100%;height:12px;display:none}
+.previewHost{position:absolute;left:-100000px;top:0;background:#fff}
+.pdf-page{position:relative;background:#fff;overflow:hidden;page-break-after:always}
+.page-body{position:absolute;overflow:hidden}
+.home{position:absolute;right:10px;top:8px;background:#d96915;color:white;padding:4px 10px;border-radius:5px;font:700 9pt Arial;z-index:5}
+.footer-left,.footer-right{position:absolute;bottom:9px;font:10pt Arial;color:#333}
+.footer-left{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.footer-right{right:0}
+.sheet-name{font-weight:700;margin-bottom:7px}
+.excel-table{border-collapse:collapse;table-layout:fixed;width:100%}
+.excel-table td,.excel-table th{border:1px solid #555;padding:3px 5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;background-clip:padding-box}
+.index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
+.index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
+.small{font-size:12px;color:var(--muted)}
+
+.index-title{text-align:center;margin:0 0 8pt}.index-filename{text-align:center;font-weight:700;font-size:12pt;margin-bottom:12pt}.index-instruction{text-align:center;color:#6aaee8;font-size:9pt;margin-bottom:12pt}.index-table a{color:#66aee8;text-decoration:underline;font-weight:600}.index-timestamp{position:absolute;left:54pt;right:54pt;bottom:24pt;text-align:center;font-size:9pt;color:#555}.previewPages{display:flex;flex-direction:column;gap:18px;align-items:center;max-height:900px;overflow:auto;padding:12px;background:#eef4fa;border-radius:10px}.previewPages .pdf-page{box-shadow:0 3px 12px rgba(0,0,0,.16);flex:none;transform-origin:top center;max-width:100%}.previewTag{position:absolute;right:10pt;top:8pt;background:#d9efff;color:#2b75a5;padding:3pt 6pt;border-radius:4pt;font:700 7pt Arial}.previewPages .index-page{transform:scale(.72);margin-bottom:-25%;}.previewPages .pdf-page:not(.index-page){transform:scale(.72);margin-bottom:-25%;}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Smart Excel to PDF Converter v14</h1>
+  <div class="sub">Automatic workbook analysis, live PDF preview, repeated headers, Excel colour/style preservation, TOC and navigation.</div>
+
+  <div class="card">
+    <div id="drop" class="drop">
+      <b>Drop Excel file here</b><br><span class="small">or click to browse (.xlsx, .xls, .xlsm)</span>
+      <input id="file" type="file" accept=".xlsx,.xls,.xlsm" hidden>
+    </div>
+    <div id="fileInfo" class="small" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div class="field"><label>Preferred font size (pt)</label><input id="prefFont" type="number" value="10" min="6" max="20"></div>
+      <div class="field"><label>Minimum readable font (pt)</label><input id="minFont" type="number" value="7" min="5" max="18"></div>
+      <div class="field"><label>Margin (minimum 0.75 inch)</label><input id="margin" type="number" value="0.75" min="0.75" step="0.05"></div>
+      <div class="field"><label>Header rows (0 = auto)</label><input id="headerRows" type="number" value="0" min="0" max="20"></div>
+      <div class="field"><label>Output PDF name</label><input id="output" type="text" value="Excel_Output.pdf"></div>
+    </div>
+    <div class="check"><input id="showFilename" type="checkbox" checked><label for="showFilename">Show source filename in footer</label></div>
+    <div class="check"><input id="index" type="checkbox" checked><label for="index">Create Table of Contents / Index</label></div>
+    <div class="check"><input id="home" type="checkbox" checked><label for="home">HOME button linking to Index</label></div>
+    <div style="margin-top:14px"><button id="generate" class="success hidden">Generate &amp; Auto-Download PDF</button></div>
+    <progress id="progress" value="0" max="100"></progress>
+    <div id="status"></div>
+  </div>
+
+  <div id="analysisCard" class="card hidden">
+    <h3>Worksheet Layout Analysis</h3>
+    <div class="small">Changes to Paper, Orientation, Font or Header rows update the preview automatically.</div>
+    <div class="tablewrap"><table id="analysis"><thead><tr><th>#</th><th>Worksheet</th><th>Rows</th><th>Cols</th><th>Paper</th><th>Orientation</th><th>Font</th><th>Header rows</th></tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div id="previewCard" class="card hidden">
+    <h3>PDF Preview</h3>
+    <div class="small">Preview updates automatically. Check the second and later pages of a worksheet to verify repeated headers.</div>
+    <div id="previewInfo" class="small" style="margin:10px 0"></div>
+    <div id="previewPages" class="previewPages"></div>
+  </div>
+</div>
+<div id="renderHost" class="previewHost"></div>
+<script>
+"use strict";
+const { jsPDF } = window.jspdf;
+const PT=72;
+const PAPERS={A4:[8.27*PT,11.69*PT],A3:[11.69*PT,16.54*PT]};
+let wb=null,fileObj=null,results=[];
+let RAW_STYLE={fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
+const $=id=>document.getElementById(id);
+function status(t){$("status").textContent=t;$("status").classList.add("show")}
+function esc(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function rawKids(n,name){return Array.from(n?n.children:[]).filter(x=>x.localName===name)}
+function rawColor(n){if(!n)return null;const o={};["rgb","theme","indexed","tint","auto"].forEach(k=>{if(n.hasAttribute(k)){const v=n.getAttribute(k);o[k]=(k==="rgb"||k==="auto")?v:Number(v)}});return Object.keys(o).length?o:null}
+function rawTheme(xml){const a=[];try{const d=new DOMParser().parseFromString(xml,"application/xml");const sc=Array.from(d.getElementsByTagNameNS("*","clrScheme"))[0];if(!sc)return a;for(const x of Array.from(sc.children)){const c=x.children[0];const h=c&&(c.getAttribute("lastClr")||c.getAttribute("val"));a.push(/^[0-9a-fA-F]{6}$/.test(h||"")?"#"+h:"")}}catch(e){}return a}
+async function loadExactStyles(buf){
+  RAW_STYLE={fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
+  if(!window.JSZip)return;
+  const z=await JSZip.loadAsync(buf);
+  const tf=z.file("xl/theme/theme1.xml");if(tf)RAW_STYLE.themeColors=rawTheme(await tf.async("text"));
+  const sf=z.file("xl/styles.xml");
+  if(sf){
+    const d=new DOMParser().parseFromString(await sf.async("text"),"application/xml"),root=d.documentElement;
+    const fonts=rawKids(rawKids(root,"fonts")[0],"font");
+    RAW_STYLE.fonts=fonts.map(f=>({bold:rawKids(f,"b").length>0,italic:rawKids(f,"i").length>0,underline:rawKids(f,"u").length>0,name:(rawKids(f,"name")[0]||{}).getAttribute?.("val"),sz:Number((rawKids(f,"sz")[0]||{}).getAttribute?.("val"))||undefined,color:rawColor(rawKids(f,"color")[0])}));
+    RAW_STYLE.fills=rawKids(rawKids(root,"fills")[0],"fill").map(f=>{const p=rawKids(f,"patternFill")[0];return {patternType:p?.getAttribute("patternType")||"none",fgColor:rawColor(p&&rawKids(p,"fgColor")[0]),bgColor:rawColor(p&&rawKids(p,"bgColor")[0])}});
+    RAW_STYLE.borders=rawKids(rawKids(root,"borders")[0],"border").map(b=>{const o={};["top","right","bottom","left"].forEach(k=>{const q=rawKids(b,k)[0];if(q)o[k]={style:q.getAttribute("style")||"",color:rawColor(rawKids(q,"color")[0])}});return o});
+    RAW_STYLE.cellXfs=rawKids(rawKids(root,"cellXfs")[0],"xf").map(x=>{const q=rawKids(x,"alignment")[0],a={};if(q)["horizontal","vertical","wrapText","textRotation","shrinkToFit"].forEach(k=>{if(q.hasAttribute(k)){const v=q.getAttribute(k);a[k]=(k==="wrapText"||k==="shrinkToFit")?["1","true"].includes(v):v}});return {fontId:+(x.getAttribute("fontId")||0),fillId:+(x.getAttribute("fillId")||0),borderId:+(x.getAttribute("borderId")||0),alignment:a,applyFill:x.getAttribute("applyFill")}});
+  }
+  const wf=z.file("xl/workbook.xml"),rf=z.file("xl/_rels/workbook.xml.rels");
+  if(wf&&rf){
+    const wd=new DOMParser().parseFromString(await wf.async("text"),"application/xml"),rd=new DOMParser().parseFromString(await rf.async("text"),"application/xml"),rel=new Map();
+    Array.from(rd.getElementsByTagNameNS("*","Relationship")).forEach(x=>rel.set(x.getAttribute("Id"),x.getAttribute("Target")));
+    for(const sh of Array.from(wd.getElementsByTagNameNS("*","sheet"))){const name=sh.getAttribute("name"),rid=sh.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id")||sh.getAttribute("r:id");let t=rel.get(rid)||"";if(!t)continue;t=t.startsWith("/")?t.slice(1):"xl/"+t.replace(/^\.\//,"");const f=z.file(t);if(!f)continue;const sd=new DOMParser().parseFromString(await f.async("text"),"application/xml");Array.from(sd.getElementsByTagNameNS("*","c")).forEach(c=>{const ref=c.getAttribute("r"),st=c.getAttribute("s");if(ref&&st!==null)RAW_STYLE.cellStyleIndex.set(name+"!"+ref,+st)})}
+  }
+}
+function normalizeArgb(hex){if(!hex||typeof hex!=="string")return"";hex=hex.replace(/^#/ ,"").trim();if(hex.length===8)hex=hex.slice(2);return /^[0-9a-fA-F]{6}$/.test(hex)?"#"+hex:""}
+function resolveThemeColor(i,tint){let c=RAW_STYLE.themeColors[Number(i)]||"";if(!c){const theme=["#FFFFFF","#000000","#EEECE1","#1F497D","#4F81BD","#C0504D","#9BBB59","#8064A2","#4BACC6","#F79646"];c=theme[Number(i)]||""}if(!c)return"";if(typeof tint==="number"&&tint!==0){const n=parseInt(c.slice(1),16);let rgb=[(n>>16)&255,(n>>8)&255,n&255];rgb=rgb.map(v=>Math.max(0,Math.min(255,Math.round(tint<0?v*(1+tint):v+(255-v)*tint))));c="#"+rgb.map(v=>v.toString(16).padStart(2,"0")).join("")}return c}
+function excelColorToCss(color){
+  if(!color||color.auto==="1"||color.auto===1)return"";
+  if(Number.isFinite(color.theme))return resolveThemeColor(color.theme,color.tint);
+  const rgb=normalizeArgb(color.rgb);if(rgb)return rgb;
+  const indexed={0:"#000000",1:"#FFFFFF",2:"#FF0000",3:"#00FF00",4:"#0000FF",5:"#FFFF00",6:"#FF00FF",7:"#00FFFF",8:"#000000",9:"#FFFFFF",10:"#FF0000",11:"#00FF00",12:"#0000FF",13:"#FFFF00",14:"#FF00FF",15:"#00FFFF",16:"#800000",17:"#008000",18:"#000080",19:"#808000",20:"#800080",21:"#008080",22:"#C0C0C0",23:"#808080",64:"",65:""};
+  return Number.isFinite(color.indexed)?(indexed[color.indexed]||""):"";
+}
+function getExactStyle(cell,sheetName,row,col){const ref=XLSX.utils.encode_cell({r:row,c:col});const idx=RAW_STYLE.cellStyleIndex.get(sheetName+"!"+ref);if(Number.isFinite(idx)&&RAW_STYLE.cellXfs[idx]){const x=RAW_STYLE.cellXfs[idx];return {font:RAW_STYLE.fonts[x.fontId]||{},fill:RAW_STYLE.fills[x.fillId]||{},border:RAW_STYLE.borders[x.borderId]||{},alignment:x.alignment||{},applyFill:x.applyFill}}return(cell&&cell.s&&typeof cell.s==="object")?cell.s:{}}
+function hasRealBorder(cell){const b=getExactStyle(cell,cell?.__sheetName||"",cell?.__row||0,cell?.__col||0).border||{};return ["top","right","bottom","left"].some(k=>b[k]?.style&&b[k].style!=="none")}
+function dims(ws){if(!ws||!ws["!ref"])return null;const base=XLSX.utils.decode_range(ws["!ref"]);let minR=Infinity,minC=Infinity,maxR=-1,maxC=-1;for(let r=base.s.r;r<=base.e.r;r++){for(let c=base.s.c;c<=base.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&(cell.v!==undefined||cell.f!==undefined||cell.w!==undefined)){minR=Math.min(minR,r);minC=Math.min(minC,c);maxR=Math.max(maxR,r);maxC=Math.max(maxC,c)}}}for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(a){minR=Math.min(minR,a.s.r);minC=Math.min(minC,a.s.c);maxR=Math.max(maxR,a.e.r);maxC=Math.max(maxC,a.e.c)}}if(maxR<0)return null;const r={s:{r:minR,c:minC},e:{r:maxR,c:maxC}};return{r,rows:maxR-minR+1,cols:maxC-minC+1}}
+function colPx(ws,c){const x=(ws["!cols"]||[])[c];if(!x)return 85;if(x.hidden)return 0;return x.wpx||((x.wch||x.width||12)*7.2)}
+function widthPx(ws,d){let n=0;for(let c=d.r.s.c;c<=d.r.e.c;c++)n+=colPx(ws,c);return n||1}
+function rowPt(ws,r){const x=(ws["!rows"]||[])[r];return(x&&x.hpt)||18}
+function pageSize(p,o){let a=[...PAPERS[p]];if(o==="landscape")a.reverse();return{w:a[0],h:a[1]}}
+function printable(p,o,m){return pageSize(p,o).w-2*m}
+function autoHeader(ws,d){let max=Math.min(d.r.e.r,d.r.s.r+5),best=1;for(let r=d.r.s.r;r<=max;r++){let filled=0,bold=0;for(let c=d.r.s.c;c<=d.r.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&cell.v!==undefined){filled++;const s=getExactStyle(cell,ws.__sheetName||"",r,c);if(s.font?.bold)bold++}}if(filled&&(bold/filled>.35||r===d.r.s.r))best=r-d.r.s.r+1}return best}
+function choose(ws,d,opt){const est=widthPx(ws,d)*.75,layouts=[["A4","portrait"],["A4","landscape"],["A3","portrait"],["A3","landscape"]];for(const [p,o] of layouts)for(let f=opt.pref;f>=opt.min;f--){if(est*(f/opt.pref)<=printable(p,o,opt.margin))return{paper:p,orientation:o,font:f,scale:1}}const p="A3",o="landscape";return{paper:p,orientation:o,font:opt.min,scale:Math.min(1,printable(p,o,opt.margin)/(est*(opt.min/opt.pref)))} }
+function cssCell(cell,sheetName,row,col){const s=getExactStyle(cell,sheetName,row,col),font=s.font||{},fill=s.fill||{},al=s.alignment||{},b=s.border||{},st=[];
+  // CRITICAL COLOUR RULE: only a genuine Excel SOLID pattern may paint a cell background.
+  // Never use bgColor as a fallback. Excel often stores bgColor metadata for non-filled cells.
+  const isSolid=String(fill.patternType||"").toLowerCase()==="solid";
+  if(isSolid){const bg=excelColorToCss(fill.fgColor);if(bg)st.push(`background-color:${bg}!important`)}
+  const fg=excelColorToCss(font.color);if(fg)st.push(`color:${fg}!important`);
+  if(font.bold)st.push("font-weight:bold");if(font.italic)st.push("font-style:italic");if(font.underline)st.push("text-decoration:underline");if(font.sz)st.push(`font-size:${font.sz}pt`);if(font.name)st.push(`font-family:"${String(font.name).replace(/"/g,"")}",Arial,sans-serif`);
+  if(al.horizontal){const h=al.horizontal==="centerContinuous"?"center":al.horizontal;st.push(`text-align:${h}`)}if(al.vertical)st.push(`vertical-align:${al.vertical}`);st.push(al.wrapText?"white-space:normal":"white-space:pre-wrap");
+  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#444";st.push(`border-${k}:1px solid ${bc}`)}});return st.join(";")}
+function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
+function makeTable(ws,d,start,end,font,scale){const table=document.createElement("table");table.className="excel-table";table.style.fontSize=font+"pt";if(scale<1){table.style.transform=`scale(${scale})`;table.style.transformOrigin="top left";table.style.width=(100/scale)+"%"}let cg=document.createElement("colgroup"),total=0,arr=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){const w=colPx(ws,c);arr.push(w);total+=w}arr.forEach(w=>{const col=document.createElement("col");col.style.width=(w/Math.max(1,total)*100)+"%";cg.appendChild(col)});table.appendChild(cg);const mm=mergedMap(ws);for(let r=start;r<=end;r++){const tr=document.createElement("tr");tr.style.minHeight=Math.max(14,rowPt(ws,r)*.75)+"pt";for(let c=d.r.s.c;c<=d.r.e.c;c++){if(mm.covered.has(`${r}:${c}`))continue;const td=document.createElement("td"),cell=ws[XLSX.utils.encode_cell({r,c})];td.innerHTML=esc(cell?(cell.w??cell.v??""):"");td.style.cssText=cssCell(cell,ws.__sheetName||"",r,c);const z=mm.m.get(`${r}:${c}`);if(z){td.rowSpan=z.rs;td.colSpan=z.cs}tr.appendChild(td)}table.appendChild(tr)}return table}
+function pageDiv(sz,margin,footer,pageNo,home){const page=document.createElement("div");page.className="pdf-page";page.style.width=sz.w+"pt";page.style.height=sz.h+"pt";const body=document.createElement("div");body.className="page-body";body.style.left=margin+"pt";body.style.top=margin+"pt";body.style.width=(sz.w-2*margin)+"pt";body.style.height=(sz.h-2*margin-32)+"pt";page.appendChild(body);const fl=document.createElement("div");fl.className="footer-left";fl.style.left=margin+"pt";fl.style.width=(sz.w-2*margin-95)+"pt";fl.textContent=footer;page.appendChild(fl);const fr=document.createElement("div");fr.className="footer-right";fr.style.right=margin+"pt";fr.textContent="Page "+pageNo;page.appendChild(fr);if(home){const h=document.createElement("div");h.className="home";h.textContent="HOME";page.appendChild(h)}return{page,body}}
+function buildSheet(x,opt,startNo){const ws=wb.Sheets[x.name],d=dims(ws);if(!d)return[];const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7,usable=sz.h-2*opt.margin-32-titleH,scale=Math.min(1,(sz.w-2*opt.margin)/(widthPx(ws,d)*.75));let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[];while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=rowPt(ws,r)*.75;const a=cur;while(cur<=end){const h=rowPt(ws,cur)*.75;if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers)pg.body.appendChild(makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale));pg.body.appendChild(makeTable(ws,d,a,cur-1,x.font,scale));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers});no++;first=false}return out}
+function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
+function getOpt(){return{margin:Math.max(.75,+$("margin").value||.75)*PT,pref:+$("prefFont").value||10,min:+$("minFont").value||7,showFilename:$("showFilename").checked,home:$("home").checked,index:$("index").checked}}
+function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetNames.map((name,i)=>{const ws=wb.Sheets[name],d=dims(ws);if(!d)return{i,name,empty:true,paper:"A4",orientation:"portrait",font:opt.pref,headers:0};const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,headers:+$("headerRows").value||autoHeader(ws,d)}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td><select class="paper" data-i="${x.i}"><option ${x.paper==="A4"?"selected":""}>A4</option><option ${x.paper==="A3"?"selected":""}>A3</option></select></td><td><select class="orient" data-i="${x.i}"><option value="portrait" ${x.orientation==="portrait"?"selected":""}>Portrait</option><option value="landscape" ${x.orientation==="landscape"?"selected":""}>Landscape</option></select></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="number" value="${x.headers}" min="0" max="20" style="width:65px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{el.addEventListener("input",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()});el.addEventListener("change",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()})});$("analysisCard").classList.remove("hidden");$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Preview updates automatically.`)}
+let previewTimer=null;
+function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(renderPreview,120)}
+function renderPreview(){if(!wb||!results.length)return;const opt=getOpt(),host=$("previewPages");host.innerHTML="";const renderHost=$("renderHost");renderHost.innerHTML="";let no=opt.index?2:1,starts=[],all=[];for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const pages=buildSheet(x,opt,no);pages.forEach(p=>{host.appendChild(p.el.cloneNode(true));renderHost.appendChild(p.el)});all.push(...pages);no+=pages.length}if(opt.index){const ix=createIndexPage(starts,opt,all.length);host.prepend(ix);renderHost.prepend(ix.cloneNode(true))}$("previewCard").classList.remove("hidden");$("previewInfo").textContent=`${all.length+(opt.index?1:0)} PDF page(s) in preview. Pages marked “HEADER REPEAT” show repeated header rows.`;host.querySelectorAll(".pdf-page").forEach((p,i)=>{const r=p.querySelector(".sheet-name");if(r&&i>0){const tag=document.createElement("div");tag.className="previewTag";tag.textContent="PDF PAGE PREVIEW";p.appendChild(tag)}});renderHost.innerHTML=""}
+async function capture(pdf,el,sz){await new Promise(r=>requestAnimationFrame(r));const canvas=await html2canvas(el,{scale:2,useCORS:true,allowTaint:true,backgroundColor:"#ffffff",logging:false,width:Math.ceil(sz.w*1.3333),height:Math.ceil(sz.h*1.3333)});pdf.addImage(canvas.toDataURL("image/jpeg",.92),"JPEG",0,0,sz.w,sz.h,undefined,"FAST")}
+async function generatePdf(){if(!results.length){alert("Select an Excel workbook first.");return}const btn=$("generate");btn.disabled=true;$("progress").style.display="block";$("progress").value=0;try{const opt=getOpt();let no=opt.index?2:1,all=[],starts=[];for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const p=buildSheet(x,opt,no);all.push(...p);no+=p.length}const total=all.length+(opt.index?1:0);if(!total)throw new Error("No printable worksheets found.");let pdf=null,done=0;if(opt.index){const ix=createIndexPage(starts,opt,all.length);pdf=new jsPDF({orientation:"portrait",unit:"pt",format:"a4",compress:true});await capture(pdf,ix,{w:PAPERS.A4[0],h:PAPERS.A4[1]});done++;$("progress").value=done/total*100}for(const p of all){if(!pdf)pdf=new jsPDF({orientation:p.x.orientation,unit:"pt",format:p.x.paper.toLowerCase(),compress:true});else pdf.addPage(p.x.paper.toLowerCase(),p.x.orientation);await capture(pdf,p.el,p.sz);done++;$("progress").value=done/total*100;status(`Generating page ${done} of ${total}...`)}if(opt.index){const indexPage=1;starts.forEach((s,i)=>{const rowY=155+i*27;pdf.setPage(indexPage);pdf.link(105,rowY,320,23,{pageNumber:s.no,top:0})});for(const p of all){pdf.setPage(p.no);if(opt.home)pdf.link(p.sz.w-80,5,75,25,{pageNumber:indexPage,top:0})}}let name=$("output").value.trim()||fileObj.name.replace(/\.[^.]+$/i,"")+".pdf";if(!/\.pdf$/i.test(name))name+=".pdf";pdf.save(name);status(`PDF generated successfully and download started.\n${total} page(s) created.`);$("progress").value=100}catch(e){console.error(e);status("Generation failed: "+e.message+"\n\nTechnical details:\n"+(e.stack||"No stack trace available"));alert("Generation failed: "+e.message)}finally{btn.disabled=false}}
+async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");try{const buf=await f.arrayBuffer();await loadExactStyles(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
+$("drop").onclick=()=>$("file").click();$("file").onchange=e=>handleFile(e.target.files[0]);$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("drag")};$("drop").ondragleave=()=>$("drop").classList.remove("drag");$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("drag");handleFile(e.dataTransfer.files[0])};$("generate").onclick=generatePdf;
+["prefFont","minFont","margin","headerRows","showFilename","index","home"].forEach(id=>$(id).addEventListener("input",()=>{if(wb){if(id==="headerRows")analyseWorkbook();else schedulePreview()}}));
+</script>
+</body>
+</html>
