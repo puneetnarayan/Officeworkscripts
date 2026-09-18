@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OneDrive Master File Renamer</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;background:#f4f6f8;color:#202124;margin:0;padding:28px}
+.wrap{max-width:1100px;margin:auto}
+h1{margin:0 0 6px}.sub{color:#666;margin-bottom:22px}
+.card{background:#fff;padding:20px;border-radius:10px;margin:14px 0;box-shadow:0 2px 8px #00000012}
+.step{font-size:17px;font-weight:700;margin-bottom:12px}
+.row{display:flex;gap:10px;align-items:center}
+button{border:0;border-radius:7px;padding:10px 16px;font-weight:600;cursor:pointer}
+.primary{background:#2563eb;color:#fff}.success{background:#15803d;color:#fff}.secondary{background:#e5e7eb}
+button:disabled{opacity:.45;cursor:not-allowed}
+.path,input,textarea{border:1px solid #cbd5e1;border-radius:7px;padding:10px;font-size:14px}
+.path{flex:1;background:#f8fafc;min-height:20px;overflow-wrap:anywhere}
+input,textarea{width:100%;box-sizing:border-box}
+textarea{min-height:70px;resize:vertical}
+label{font-weight:600;font-size:14px;display:block;margin:12px 0 6px}
+.checks{display:flex;gap:22px;flex-wrap:wrap}.checks label{font-weight:400;margin:10px 0}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}
+.stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 18px}
+.stat b{display:block;font-size:20px}.stat span{font-size:12px;color:#64748b}
+.table{max-height:420px;overflow:auto;border:1px solid #ddd;border-radius:7px;margin-top:15px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left}
+th{background:#f8fafc;position:sticky;top:0}
+.log{background:#111827;color:#d1d5db;border-radius:7px;padding:12px;min-height:80px;max-height:200px;overflow:auto;font:12px Consolas,monospace;white-space:pre-wrap}
+.note{background:#fff7ed;border-left:4px solid #f59e0b;padding:12px;border-radius:5px}
+.ok{color:#15803d;font-weight:600}.skip{color:#b45309;font-weight:600}.bad{color:#b91c1c;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>OneDrive Master File Renamer</h1>
+<div class="sub">Creates a separate copy for every company while leaving the original files unchanged.</div>
+
+<div class="card">
+<div class="step">1. Source Folder</div>
+<div class="row">
+<button class="primary" id="srcBtn">Browse Source Folder</button>
+<div class="path" id="srcPath">No folder selected</div>
+</div>
+</div>
+
+<div class="card">
+<div class="step">2. Company Names</div>
+<textarea id="companies" placeholder="Comp1, Comp2, Comp3, Comp4"></textarea>
+<div style="font-size:12px;color:#64748b;margin-top:7px">Enter company names separated by commas.</div>
+</div>
+
+<div class="card">
+<div class="step">3. Destination Folder</div>
+<div class="row">
+<button class="primary" id="dstBtn">Browse Destination Folder</button>
+<div class="path" id="dstPath">No folder selected</div>
+</div>
+</div>
+
+<div class="card">
+<div class="step">4. Replacement Options</div>
+<label>String to replace</label>
+<input id="findText" value="master">
+<div class="checks">
+<label><input type="checkbox" id="ci" checked> Case-insensitive</label>
+<label><input type="checkbox" id="recursive" checked> Include subfolders</label>
+<label><input type="checkbox" id="noOverwrite" checked> Do not overwrite existing files</label>
+</div>
+</div>
+
+<div class="card">
+<div class="step">5. Preview and Create</div>
+<div class="row">
+<button class="secondary" id="scanBtn" disabled>Scan & Preview</button>
+<button class="success" id="createBtn" disabled>Create Files</button>
+</div>
+<div class="stats">
+<div class="stat"><b id="nSource">0</b><span>Matching source files</span></div>
+<div class="stat"><b id="nCompany">0</b><span>Companies</span></div>
+<div class="stat"><b id="nOutput">0</b><span>Files to create</span></div>
+</div>
+<div id="tableBox" class="table" style="display:none">
+<table><thead><tr><th>Source filename</th><th>Company</th><th>New filename</th><th>Status</th></tr></thead>
+<tbody id="tbody"></tbody>
+</table>
+</div>
+</div>
+
+<div class="card">
+<div class="step">Activity Log</div>
+<div id="log" class="log">Ready.</div>
+</div>
+
+<div class="note">
+<strong>Important:</strong> The program replaces only the specified text in the filename. For example,
+<code>1_master_file1 - Copy (2).txt</code> becomes
+<code>1_Comp1_file1 - Copy (2).txt</code>.
+The original is never changed.
+</div>
+</div>
+
+<script>
+"use strict";
+
+let sourceDir=null,destDir=null,plans=[];
+
+const $=id=>document.getElementById(id);
+function log(s){$("log").textContent+="\\n["+new Date().toLocaleTimeString()+"] "+s;$("log").scrollTop=$("log").scrollHeight}
+function getCompanies(){return $("companies").value.split(",").map(x=>x.trim()).filter(x=>x.length)}
+function esc(s){return s.replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]))}
+
+/* IMPORTANT:
+   This replacement function deliberately replaces ONLY the requested search
+   string. It does not alter any other characters in the filename. */
+function makeNewName(filename,search,replacement,insensitive){
+  if(!insensitive){
+    return filename.split(search).join(replacement);
+  }
+  const escaped=search.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  return filename.replace(new RegExp(escaped,"gi"),()=>replacement);
+}
+
+async function pickSource(){
+  try{
+    sourceDir=await window.showDirectoryPicker({mode:"read"});
+    $("srcPath").textContent=sourceDir.name;
+    $("scanBtn").disabled=false;
+    log("Source selected: "+sourceDir.name);
+  }catch(e){if(e.name!=="AbortError")log("Source selection failed: "+e.message)}
+}
+
+async function pickDestination(){
+  try{
+    destDir=await window.showDirectoryPicker({mode:"readwrite"});
+    $("dstPath").textContent=destDir.name;
+    log("Destination selected: "+destDir.name);
+    $("createBtn").disabled=plans.length===0;
+  }catch(e){if(e.name!=="AbortError")log("Destination selection failed: "+e.message)}
+}
+
+async function collect(dir,relative=""){
+  let out=[];
+  for await(const [name,h] of dir.entries()){
+    const rel=relative?relative+"/"+name:name;
+    if(h.kind==="file") out.push({handle:h,name,relative:rel});
+    else if(h.kind==="directory" && $("recursive").checked)
+      out=out.concat(await collect(h,rel));
+  }
+  return out;
+}
+
+async function exists(dir,name){
+  try{await dir.getFileHandle(name,{create:false});return true}catch{return false}
+}
+
+async function scan(){
+  if(!sourceDir)return;
+  const search=$("findText").value;
+  const cs=getCompanies();
+  if(!search){alert("Enter the string to replace.");return}
+  if(!cs.length){alert("Enter at least one company name.");return}
+
+  plans=[];
+  $("tbody").innerHTML="";
+  $("tableBox").style.display="none";
+  $("createBtn").disabled=true;
+
+  log("Scanning...");
+  const all=await collect(sourceDir);
+  const insensitive=$("ci").checked;
+  const needle=insensitive?search.toLowerCase():search;
+
+  const matches=all.filter(f=>(insensitive?f.name.toLowerCase():f.name).includes(needle));
+
+  for(const f of matches){
+    for(const company of cs){
+      const newName=makeNewName(f.name,search,company,insensitive);
+      plans.push({f,company,newName});
+    }
+  }
+
+  $("nSource").textContent=matches.length;
+  $("nCompany").textContent=cs.length;
+  $("nOutput").textContent=plans.length;
+
+  for(const p of plans){
+    const tr=document.createElement("tr");
+    tr.innerHTML="<td>"+esc(p.f.relative)+"</td><td>"+esc(p.company)+"</td><td>"+esc(p.newName)+"</td><td class='ok'>Ready</td>";
+    $("tbody").appendChild(tr);
+  }
+
+  $("tableBox").style.display=plans.length?"block":"none";
+  $("createBtn").disabled=!destDir || !plans.length;
+  log("Found "+matches.length+" matching source file(s). Planned "+plans.length+" output file(s).");
+}
+
+async function createFiles(){
+  if(!destDir||!plans.length)return;
+  $("createBtn").disabled=true;$("scanBtn").disabled=true;
+  let created=0,skipped=0,failed=0;
+
+  for(const p of plans){
+    const name=p.newName;
+    try{
+      if($("noOverwrite").checked && await exists(destDir,name)){
+        skipped++;log("SKIPPED: "+name);continue;
+      }
+      const data=await p.f.handle.getFile();
+      const out=await destDir.getFileHandle(name,{create:true});
+      const w=await out.createWritable();
+      await w.write(data);
+      await w.close();
+      created++;log("CREATED: "+name);
+    }catch(e){
+      failed++;log("FAILED: "+name+" — "+e.message);
+    }
+  }
+
+  $("scanBtn").disabled=false;
+  $("createBtn").disabled=false;
+  alert("Finished.\\n\\nCreated: "+created+"\\nSkipped: "+skipped+"\\nFailed: "+failed);
+}
+
+$("srcBtn").onclick=pickSource;
+$("dstBtn").onclick=pickDestination;
+$("scanBtn").onclick=scan;
+$("createBtn").onclick=createFiles;
+$("companies").oninput=()=>{$("nCompany").textContent=getCompanies().length};
+
+if(!window.showDirectoryPicker){
+  log("WARNING: Your browser does not support folder access. Use current Microsoft Edge or Google Chrome.");
+}
+</script>
+</body>
+</html>

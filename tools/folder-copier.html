@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folder & File Company Copier</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:28px;font-family:"Segoe UI",Arial,sans-serif;background:#f4f6f8;color:#202124}
+.wrap{max-width:1120px;margin:auto}h1{margin:0 0 6px;font-size:28px}.sub{color:#667085;margin-bottom:22px}
+.card{background:#fff;border-radius:11px;padding:20px;margin:14px 0;box-shadow:0 2px 9px #00000012}.step{font-size:17px;font-weight:700;margin-bottom:12px}
+.row{display:flex;gap:10px;align-items:center}button{border:0;border-radius:7px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}
+.primary{background:#2563eb;color:#fff}.success{background:#15803d;color:#fff}.secondary{background:#e5e7eb;color:#111827}button:disabled{opacity:.45;cursor:not-allowed}
+.path{flex:1;min-height:41px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;overflow-wrap:anywhere}
+label{display:block;font-size:14px;font-weight:600;margin:12px 0 6px}input[type=text],textarea{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:7px;font-size:14px}
+textarea{min-height:72px;resize:vertical}.checks{display:flex;gap:22px;flex-wrap:wrap}.checks label{font-weight:400;margin:10px 0}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.stat{min-width:135px;padding:11px 17px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px}
+.stat b{display:block;font-size:21px}.stat span{font-size:12px;color:#64748b}.tablebox{max-height:430px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-top:15px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}th{background:#f8fafc;position:sticky;top:0}
+.ok{color:#15803d;font-weight:600}.log{background:#111827;color:#d1d5db;border-radius:8px;padding:12px;min-height:90px;max-height:230px;overflow:auto;font:12px Consolas,monospace;white-space:pre-wrap}
+.note{background:#eff6ff;border-left:4px solid #2563eb;padding:13px;border-radius:5px;line-height:1.5}.warning{background:#fff7ed;border-left:4px solid #f59e0b;padding:13px;border-radius:5px;line-height:1.5}
+code{background:#eef2f7;padding:2px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Folder & File Company Copier</h1>
+<div class="sub">Creates a new company-specific folder and copies the files into it, without changing the originals.</div>
+
+<div class="card">
+<div class="step">1. Select Source Folder</div>
+<div class="row"><button class="primary" id="sourceBtn">Browse Source Folder</button><div class="path" id="sourcePath">No folder selected</div></div>
+<div style="font-size:12px;color:#64748b;margin-top:8px">Select the folder whose name needs to be changed and whose files need to be copied.</div>
+</div>
+
+<div class="card">
+<div class="step">2. Select Destination Folder</div>
+<div class="row"><button class="primary" id="destBtn">Browse Destination Folder</button><div class="path" id="destPath">No folder selected</div></div>
+<div style="font-size:12px;color:#64748b;margin-top:8px">New company folders will be created directly inside this destination folder.</div>
+</div>
+
+<div class="card">
+<div class="step">3. Company Names</div>
+<textarea id="companies" placeholder="Comp1, Comp2, Comp3, Comp4"></textarea>
+<div style="font-size:12px;color:#64748b;margin-top:8px">Enter company names separated by commas. One new folder will be created for each company.</div>
+</div>
+
+<div class="card">
+<div class="step">4. Replacement Rules</div>
+<label for="folderString">String to replace in the SOURCE FOLDER NAME</label>
+<input type="text" id="folderString" value="master">
+<label for="fileString">String to replace in FILENAMES</label>
+<input type="text" id="fileString" value="master">
+<div class="checks">
+<label><input type="checkbox" id="ciFolder" checked> Case-insensitive folder matching</label>
+<label><input type="checkbox" id="ciFile" checked> Case-insensitive filename matching</label>
+<label><input type="checkbox" id="recursive" checked> Include files in subfolders</label>
+<label><input type="checkbox" id="noOverwrite" checked> Do not overwrite existing files</label>
+</div>
+</div>
+
+<div class="card">
+<div class="step">5. Scan & Preview</div>
+<div class="row"><button class="secondary" id="scanBtn" disabled>Scan & Preview</button><button class="success" id="createBtn" disabled>Create Folders & Files</button></div>
+<div class="stats">
+<div class="stat"><b id="nFiles">0</b><span>Source files</span></div>
+<div class="stat"><b id="nCompanies">0</b><span>Companies</span></div>
+<div class="stat"><b id="nOutputs">0</b><span>File copies</span></div>
+<div class="stat"><b id="nFolders">0</b><span>New folders</span></div>
+</div>
+<div id="preview" style="display:none"><div class="tablebox"><table>
+<thead><tr><th>Source folder</th><th>Company</th><th>New folder</th><th>Source file</th><th>New file</th></tr></thead>
+<tbody id="tbody"></tbody>
+</table></div></div>
+</div>
+
+<div class="card"><div class="step">Activity Log</div><div id="log" class="log">Ready.</div></div>
+
+<div class="note"><strong>Example:</strong><br>
+Source folder: <code>Project_master_2026</code><br>
+Company: <code>Comp1</code><br>
+New folder: <code>Project_Comp1_2026</code><br><br>
+Inside it, <code>1_master_file1 - Copy (2).txt</code> becomes <code>1_Comp1_file1 - Copy (2).txt</code>.
+All other characters, spaces, hyphens, numbering and file extensions remain unchanged.
+</div>
+<div class="warning" style="margin-top:14px"><strong>Safety:</strong> Original folders and files are only read. They are not renamed, moved, deleted or modified.</div>
+</div>
+
+<script>
+"use strict";
+let sourceDir=null,destDir=null,plans=[];
+const $=id=>document.getElementById(id);
+
+function log(msg){$("log").textContent+="\n["+new Date().toLocaleTimeString()+"] "+msg;$("log").scrollTop=$("log").scrollHeight}
+function getCompanies(){return $("companies").value.split(",").map(s=>s.trim()).filter(Boolean)}
+function esc(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+function replaceText(text,search,replacement,insensitive){
+  if(!search)return text;
+  if(!insensitive)return text.split(search).join(replacement);
+  const escaped=search.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  return text.replace(new RegExp(escaped,"gi"),()=>replacement);
+}
+function safeFilename(name){return name.replace(/[<>:"/\\|?*\x00-\x1F]/g,"_").replace(/[. ]+$/g,"_")}
+
+async function collectFiles(dir,relative=""){
+  let out=[];
+  for await(const [name,h] of dir.entries()){
+    const rel=relative?relative+"/"+name:name;
+    if(h.kind==="file")out.push({handle:h,name,relative:rel});
+    else if(h.kind==="directory" && $("recursive").checked)out=out.concat(await collectFiles(h,rel));
+  }
+  return out;
+}
+
+async function chooseSource(){
+  try{
+    sourceDir=await window.showDirectoryPicker({mode:"read"});
+    $("sourcePath").textContent=sourceDir.name;$("scanBtn").disabled=false;
+    log("Source folder selected: "+sourceDir.name);
+  }catch(e){if(e.name!=="AbortError")log("Source selection failed: "+e.message)}
+}
+async function chooseDestination(){
+  try{
+    destDir=await window.showDirectoryPicker({mode:"readwrite"});
+    $("destPath").textContent=destDir.name;log("Destination folder selected: "+destDir.name);updateButtons();
+  }catch(e){if(e.name!=="AbortError")log("Destination selection failed: "+e.message)}
+}
+
+async function scan(){
+  if(!sourceDir)return;
+  const companies=getCompanies(),fs=$("folderString").value, fns=$("fileString").value;
+  if(!companies.length){alert("Enter at least one company name.");return}
+  if(!fs){alert("Enter the string to replace in the source folder name.");return}
+  if(!fns){alert("Enter the string to replace in filenames.");return}
+
+  plans=[];$("tbody").innerHTML="";$("preview").style.display="none";$("createBtn").disabled=true;
+  log("Scanning source folder...");
+  const files=await collectFiles(sourceDir);
+  const ciFolder=$("ciFolder").checked,ciFile=$("ciFile").checked;
+  const folderName=sourceDir.name;
+  const folderMatch=ciFolder?folderName.toLowerCase().includes(fs.toLowerCase()):folderName.includes(fs);
+
+  $("nFiles").textContent=files.length;$("nCompanies").textContent=companies.length;
+  if(!folderMatch){
+    $("nOutputs").textContent=0;$("nFolders").textContent=0;
+    log("WARNING: source folder name does not contain '"+fs+"'.");
+    alert("The selected source folder name does not contain '"+fs+"'.\n\nSource folder: "+folderName);
+    return;
+  }
+
+  for(const company of companies){
+    const newFolder=safeFilename(replaceText(folderName,fs,company,ciFolder));
+    for(const f of files){
+      const newFile=safeFilename(replaceText(f.name,fns,company,ciFile));
+      plans.push({company,newFolder,sourceFile:f,newFile});
+    }
+  }
+
+  $("nOutputs").textContent=plans.length;$("nFolders").textContent=companies.length;
+  for(const p of plans){
+    const tr=document.createElement("tr");
+    tr.innerHTML="<td>"+esc(sourceDir.name)+"</td><td>"+esc(p.company)+"</td><td>"+esc(p.newFolder)+"</td><td>"+esc(p.sourceFile.relative)+"</td><td>"+esc(p.newFile)+"</td>";
+    $("tbody").appendChild(tr);
+  }
+  $("preview").style.display=plans.length?"block":"none";$("createBtn").disabled=!destDir||!plans.length;
+  log("Scan complete: "+files.length+" source file(s), "+companies.length+" company folder(s), "+plans.length+" file copies planned.");
+}
+
+async function exists(dir,name){
+  try{await dir.getFileHandle(name,{create:false});return true}catch{return false}
+}
+async function ensurePath(parent,parts){
+  let dir=parent;
+  for(const part of parts)if(part)dir=await dir.getDirectoryHandle(part,{create:true});
+  return dir;
+}
+
+async function createAll(){
+  if(!destDir||!plans.length)return;
+  $("createBtn").disabled=true;$("scanBtn").disabled=true;
+  let created=0,skipped=0,failed=0;const madeFolders=new Set();
+
+  for(const p of plans){
+    try{
+      const companyFolder=await destDir.getDirectoryHandle(p.newFolder,{create:true});
+      madeFolders.add(p.newFolder);
+
+      const parts=p.sourceFile.relative.split("/");
+      const originalFile=parts.pop();
+      const subdir=await ensurePath(companyFolder,parts);
+      const targetName=p.newFile;
+
+      if($("noOverwrite").checked && await exists(subdir,targetName)){
+        skipped++;log("SKIPPED (already exists): "+p.newFolder+"/"+(parts.length?parts.join("/")+"/":"")+targetName);continue;
+      }
+
+      const sourceFile=await p.sourceFile.handle.getFile();
+      const out=await subdir.getFileHandle(targetName,{create:true});
+      const w=await out.createWritable();await w.write(sourceFile);await w.close();
+      created++;log("CREATED: "+p.newFolder+"/"+(parts.length?parts.join("/")+"/":"")+targetName);
+    }catch(e){failed++;log("FAILED: "+p.newFolder+"/"+p.newFile+" — "+e.message)}
+  }
+
+  $("scanBtn").disabled=false;$("createBtn").disabled=false;
+  log("Finished. Folders: "+madeFolders.size+" | Files created: "+created+" | Skipped: "+skipped+" | Failed: "+failed);
+  alert("Finished.\n\nNew folders: "+madeFolders.size+"\nFiles created: "+created+"\nSkipped: "+skipped+"\nFailed: "+failed);
+}
+
+function updateButtons(){$("scanBtn").disabled=!sourceDir;$("createBtn").disabled=!destDir||!plans.length}
+$("sourceBtn").onclick=chooseSource;$("destBtn").onclick=chooseDestination;$("scanBtn").onclick=scan;$("createBtn").onclick=createAll;
+$("companies").oninput=()=>{$("nCompanies").textContent=getCompanies().length};
+if(!window.showDirectoryPicker)log("WARNING: Folder Access API unavailable. Use current Microsoft Edge or Google Chrome.");
+</script>
+</body>
+</html>
