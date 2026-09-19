@@ -172,7 +172,17 @@ const FOOTER_PATTERNS = [
   /^TOTAL BASE VALUE/i,
   /^TOTAL PO VALUE/i,
   /^AUTHORISED SIGNATORY$/i,
-  /^Page\s*No\.?\s*:/i
+  /^Page\s*No\.?\s*:/i,
+  // Purchase Requisition (SAP-style) footer/signature block.
+  /^Estimated Price\s*:/i,
+  /^\(Excl\.\s*Cenvat\)$/i,
+  /^Created By$/i,
+  /^Concurrence Dept\.?$/i,
+  /^Concurrence Stores\s*\/\s*Accounts$/i,
+  /^Approving Authority$/i,
+  /^Name\s*:/i,
+  /^Date\s*:/i,
+  /^Page\s*:\s*\d+\s*\/\s*\d+$/i
 ];
 
 function isFooterText(txt){ return FOOTER_PATTERNS.some(r=>r.test(normalizeText(txt))); }
@@ -503,6 +513,101 @@ function extractServiceSummary(lines,fileName,pageNo){
   return {'Sr. No.':sr,'Service Short Description':text.replace(/^\d+\s*/,'').replace(/\s+(Dept\s*:.*)$/i,''),'UOM':uom,'Quantity':nums[0]||'','Total':nums[1]||'','Completion Date':(first.items.find(x=>CONFIG.deliveryRegex.test(normalizeText(x.text)))?.text||'').trim(),'Source PDF':fileName,'Page':pageNo};
 }
 
+/* ----------------------------- Purchase Requisition (SAP-style) ----------------------------- */
+// A different source document from the JSW PO / Service Order: a one-line
+// "PURCHASE REQUISITION" title, no vendor section, and a Sl./Material/
+// Description/Qty/Uom/Price/ Unit/Value/.../WBS Element item table with a
+// "MATERIAL LONG TEXT:" marker introducing the long description.
+function isRequisitionDocument(lines){
+  return lines.some(l=>/^PURCHASE REQUISITION$/i.test(normalizeText(l.text)));
+}
+
+function findRequisitionHeaderLine(lines){
+  for(let i=0;i<lines.length;i++){
+    const t=normalizeText(lines[i].text).toUpperCase();
+    if(/\bSL\.?\b/.test(t) && /MATERIAL/.test(t) && /DESCRIPTION/.test(t) && /QTY/.test(t)) return {index:i,line:lines[i]};
+  }
+  return null;
+}
+
+// Column x-ranges are inferred from the header row's own token positions
+// where possible; the numbers used to nudge each boundary are tuned to the
+// SAP "Purchase Requisition" export this was verified against and may need
+// adjustment for a differently laid-out variant of the same report.
+function inferRequisitionColumnRanges(headerLine){
+  const toks=headerLine?headerLine.items.map(it=>({t:normalizeText(it.text).toUpperCase(),c:xCenter(it)})):[];
+  const find=regex=>{const m=toks.find(z=>regex.test(z.t));return m?m.c:null};
+  const Q=find(/^QTY\.?$/)??280, U=find(/^UOM$/)??315, P=find(/UNIT/)??355, V=find(/^VALUE$/)??405, R=find(/^REQUIRED$/)??495;
+  return {
+    description:[85,Q-20],
+    qty:[Q-25,U-10],
+    uom:[U-15,P-20],
+    unit:[P-20,V-20],
+    value:[V-20,R-55],
+    required:[R-25,R+40]
+  };
+}
+
+function parseRequisitionBlock(block,fileName,pageNo,ranges){
+  const start=block.map(detectMaterialStart).find(Boolean);
+  if(!start) return null;
+  const itemIndex=block.findIndex(d=>{const x=detectMaterialStart(d);return x&&x.code===start.code&&x.sr===start.sr;});
+  const row={'Sr. No.':start.sr,'Item Code':start.code,'Description':'','Long Description / Specification':'','UOM':'','Quantity':'','Unit Price':'','Total Base Value':'','Total Value':'','Delivery Schedule':'','Source PDF':fileName,'Page':pageNo};
+  row['Quantity']=extractFromRange(block,itemIndex,ranges.qty,isNumberText);
+  row['UOM']=extractFromRange(block,itemIndex,ranges.uom,x=>/^[A-Za-z]{1,8}$/.test(x));
+  row['Unit Price']=extractFromRange(block,itemIndex,ranges.unit,isNumberText);
+  row['Total Value']=extractFromRange(block,itemIndex,ranges.value,isNumberText);
+  row['Delivery Schedule']=extractFromRange(block,itemIndex,ranges.required,x=>CONFIG.deliveryRegex.test(x));
+
+  const descParts=[],longParts=[]; let inLong=false;
+  for(let i=itemIndex;i<block.length;i++){
+    const line=block[i];
+    const t=normalizeText(line.text);
+    if(!t) continue;
+    if(/^MATERIAL LONG TEXT\s*:?$/i.test(t)){ inLong=true; continue; }
+    if(inLong){
+      // "Estimated Price:" is this item's own summary line, always printed
+      // once the long text ends, so it is a genuine stop rather than a
+      // page-boundary footer that legitimate text could still follow.
+      if(isFooterText(t)) break;
+      longParts.push(t);
+      continue;
+    }
+    if(isFooterText(t) || isHeaderRowText(t)) continue;
+    if(i===itemIndex || !detectMaterialStart(line)){
+      const v=valueInRange(line,ranges.description);
+      if(v) descParts.push(v);
+    }
+  }
+  row['Description']=cleanDescriptionText(descParts);
+  row['Long Description / Specification']=cleanDescriptionText(longParts);
+  return row;
+}
+
+function extractRequisitionHeader(lines){
+  const val=regex=>{ for(const l of lines){ const m=l.text.match(regex); if(m) return normalizeText(m[1]); } return ''; };
+  return {
+    'Document Type':'PURCHASE REQUISITION',
+    'PR No.':val(/^PR No\.\s*(.+)$/i),
+    'Status':val(/^Status\s+(.+)$/i),
+    'Approval Date / Changed Date':val(/^Approval Date\s*\/\s*Changed Date\s*(.+)$/i),
+    'Fund Center / Name':val(/^Fund Center\s*\/\s*Name\s*(.+)$/i),
+    'Justification':val(/^Justification:\s*(.+)$/i)
+  };
+}
+
+function extractRequisitionItems(lines,fileName,ranges){
+  const starts=[];
+  for(let i=0;i<lines.length;i++) if(detectMaterialStart(lines[i])) starts.push(i);
+  const items=[];
+  for(let s=0;s<starts.length;s++){
+    const a=starts[s], b=(s+1<starts.length?starts[s+1]:lines.length);
+    const item=parseRequisitionBlock(lines.slice(a,b),fileName,lines[starts[s]].page,ranges);
+    if(item) items.push(item);
+  }
+  return {items,mode:'requisition',warning:items.length?null:'No item rows detected in this Purchase Requisition.'};
+}
+
 function extractDocumentItems(lines,anyHeaderSeen,fileName,globalRanges){
   // `lines` is the whole document's lines, in page + top-to-bottom order,
   // each tagged with .page. Item blocks are cut between consecutive item
@@ -620,15 +725,24 @@ async function processFile(file){
     if(!globalRanges.material && headers.material) globalRanges.material=inferColumnRanges([headers.material.line], 'material');
     if(!globalRanges.service && headers.service) globalRanges.service=inferColumnRanges(lines.slice(headers.service.index,Math.min(lines.length,headers.service.index+3)), 'service');
 
-    if(p===1){
+    if(p===1 && !isRequisitionDocument(lines)){
       const summary=extractServiceSummary(lines,file.name,p);
       if(summary) serviceSummaries.push(summary);
     }
   }
-  if(!globalRanges.material) globalRanges.material=inferColumnRanges([], 'material');
-  if(!globalRanges.service) globalRanges.service=inferColumnRanges([], 'service');
 
-  const result=extractDocumentItems(allLines,anyHeaderSeen,file.name,globalRanges);
+  const isRequisition=isRequisitionDocument(allLines);
+  let result, header;
+  if(isRequisition){
+    const reqRanges=inferRequisitionColumnRanges(findRequisitionHeaderLine(allLines)?.line||null);
+    result=extractRequisitionItems(allLines,file.name,reqRanges);
+    header=extractRequisitionHeader(allLines);
+  }else{
+    if(!globalRanges.material) globalRanges.material=inferColumnRanges([], 'material');
+    if(!globalRanges.service) globalRanges.service=inferColumnRanges([], 'service');
+    result=extractDocumentItems(allLines,anyHeaderSeen,file.name,globalRanges);
+    header=extractHeader(pageLines);
+  }
   const warnings=result.warning?[result.warning]:[];
 
   if(serviceSummaries.length && result.mode==='service'){
@@ -639,7 +753,7 @@ async function processFile(file){
   return {
     pages:pdf.numPages,
     items:result.items,
-    header:extractHeader(pageLines),
+    header,
     warnings,
     mode:result.mode,
     serviceSummaries
