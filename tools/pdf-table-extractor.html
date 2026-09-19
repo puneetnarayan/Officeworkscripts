@@ -970,7 +970,11 @@ function buildWorkbook(){
 }
 $('exportBtn').addEventListener('click',()=>{
   const wb=buildWorkbook();
-  XLSX.writeFile(wb,`PDF_Extracted_${new Date().toISOString().slice(0,10)}.xlsx`);
+  // Build the file ourselves and hand it to the same download path CSV/JSON
+  // use, rather than XLSX.writeFile()'s own internal download handling,
+  // which behaves inconsistently across browsers/contexts.
+  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  downloadBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`PDF_Extracted_${new Date().toISOString().slice(0,10)}.xlsx`);
 });
 
 /* ----------------------------- CSV / JSON / Print ----------------------------- */
