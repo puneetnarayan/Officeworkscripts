@@ -170,11 +170,23 @@ const FOOTER_PATTERNS = [
   /^JVML\/\/?C\//i,
   /^TOTAL DUTIES\/TAXES/i,
   /^TOTAL BASE VALUE/i,
-  /^TOTAL PO VALUE/i
+  /^TOTAL PO VALUE/i,
+  /^AUTHORISED SIGNATORY$/i,
+  /^Page\s*No\.?\s*:/i
 ];
 
 function isFooterText(txt){ return FOOTER_PATTERNS.some(r=>r.test(normalizeText(txt))); }
 function isNumberText(x){ return CONFIG.numberRegex.test(normalizeNumberText(x)); }
+
+// A repeated column-heading row (e.g. the table header reprinted at the
+// top of a continuation page). Matches only short lines made up entirely
+// of heading words, so genuine description text isn't mistaken for one.
+const HEADER_ROW_WORDS = new Set(['SR','NO','ITEM','SERVICE','CODE','SHORT','DESCRIPTION','UOM','QTY','UNIT','PRICE','TOTAL','BASE','VALUE','DELIVERY','SCHEDULE','COMPLETION','DATE']);
+function isHeaderRowText(txt){
+  const words=normalizeText(txt).toUpperCase().replace(/\./g,'').split(/\s+/).filter(Boolean);
+  if(!words.length || words.length>20) return false;
+  return words.every(w=>HEADER_ROW_WORDS.has(w));
+}
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -420,7 +432,10 @@ function parseMaterialBlock(block,fileName,pageNo,ranges){
   const desc=[],longDesc=[]; let inLong=false;
   for(let i=itemIndex+1;i<block.length;i++){
     const txt=normalizeText(block[i].text); if(!txt) continue;
-    if(isFooterText(txt)) break;
+    // Page-footer boilerplate and reprinted column headers can fall between
+    // this item's row and its continuation on the next page; skip them
+    // without aborting the rest of the block.
+    if(isFooterText(txt) || isHeaderRowText(txt)) continue;
     if(CONFIG.longDescriptionMarkers.some(r=>r.test(txt))) inLong=true;
     if(inLong) longDesc.push(txt); else if(block[i].minX < ranges.uom[0]) desc.push(txt);
   }
@@ -448,9 +463,10 @@ function parseServiceBlock(block,fileName,pageNo,ranges){
   const texts=[];
   for(let i=itemIndex+1;i<block.length;i++){
     const txt=normalizeText(block[i].text); if(!txt) continue;
-    if(isFooterText(txt)) break;
-    // Header fragments from repeated page headers are not descriptions.
-    if(/^(SR\.?|NO\.?|SERVICE|CODE|DESCRIPTION|QTY\.?|UOM|UNIT|PRICE|TOTAL|COMPLETION|DATE)$/i.test(txt)) continue;
+    // Page-footer boilerplate and reprinted column headers can fall between
+    // this item's row and its continuation on the next page; skip them
+    // without aborting the rest of the block.
+    if(isFooterText(txt) || isHeaderRowText(txt)) continue;
     texts.push({line:block[i],txt});
   }
   if(texts.length){
@@ -487,7 +503,12 @@ function extractServiceSummary(lines,fileName,pageNo){
   return {'Sr. No.':sr,'Service Short Description':text.replace(/^\d+\s*/,'').replace(/\s+(Dept\s*:.*)$/i,''),'UOM':uom,'Quantity':nums[0]||'','Total':nums[1]||'','Completion Date':(first.items.find(x=>CONFIG.deliveryRegex.test(normalizeText(x.text)))?.text||'').trim(),'Source PDF':fileName,'Page':pageNo};
 }
 
-function extractPageItems(lines,headers,fileName,pageNo,globalRanges){
+function extractDocumentItems(lines,anyHeaderSeen,fileName,globalRanges){
+  // `lines` is the whole document's lines, in page + top-to-bottom order,
+  // each tagged with .page. Item blocks are cut between consecutive item
+  // starts in this combined stream, so a description that runs past a
+  // page break (before the next item's row) is still captured instead of
+  // being cut off at the page boundary.
   const serviceStarts=[];
   const materialStarts=[];
   for(let i=0;i<lines.length;i++){
@@ -499,7 +520,7 @@ function extractPageItems(lines,headers,fileName,pageNo,globalRanges){
     const ranges=globalRanges.service;
     for(let s=0;s<serviceStarts.length;s++){
       const a=Math.max(0,serviceStarts[s]-1), b=(s+1<serviceStarts.length?serviceStarts[s+1]:lines.length);
-      const item=parseServiceBlock(lines.slice(a,b),fileName,pageNo,ranges);
+      const item=parseServiceBlock(lines.slice(a,b),fileName,lines[serviceStarts[s]].page,ranges);
       if(item) items.push(item);
     }
     return {items,mode:'service',warning:null};
@@ -508,12 +529,12 @@ function extractPageItems(lines,headers,fileName,pageNo,globalRanges){
     const ranges=globalRanges.material;
     for(let s=0;s<materialStarts.length;s++){
       const a=Math.max(0,materialStarts[s]-1), b=(s+1<materialStarts.length?materialStarts[s+1]:lines.length);
-      const item=parseMaterialBlock(lines.slice(a,b),fileName,pageNo,ranges);
+      const item=parseMaterialBlock(lines.slice(a,b),fileName,lines[materialStarts[s]].page,ranges);
       if(item) items.push(item);
     }
     return {items,mode:'material',warning:null};
   }
-  return {items:[],mode:'none',warning:headers.material||headers.service?'No item rows detected on this page.':'No recognizable PO/Service Order table detected on this page.'};
+  return {items:[],mode:'none',warning:anyHeaderSeen?'No item rows detected in this document.':'No recognizable PO/Service Order table detected in this document.'};
 }
 
 /* ----------------------------- Header extraction ----------------------------- */
@@ -581,48 +602,46 @@ async function processFile(file){
   const data=await file.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data}).promise;
   const pageLines=[];
-  const items=[];
-  const warnings=[];
+  const allLines=[];
   let globalRanges={material:null,service:null};
-  let documentMode='unknown';
+  let anyHeaderSeen=false;
   const serviceSummaries=[];
 
   for(let p=1;p<=pdf.numPages;p++){
     setStatus(`Reading ${file.name} — page ${p} of ${pdf.numPages}...`);
     const page=await pdf.getPage(p);
     const lines=await getPageLines(page);
+    lines.forEach(l=>{l.page=p});
     pageLines.push(lines);
+    allLines.push(...lines);
 
     const headers=findTableHeaders(lines);
+    if(headers.material||headers.service) anyHeaderSeen=true;
     if(!globalRanges.material && headers.material) globalRanges.material=inferColumnRanges([headers.material.line], 'material');
     if(!globalRanges.service && headers.service) globalRanges.service=inferColumnRanges(lines.slice(headers.service.index,Math.min(lines.length,headers.service.index+3)), 'service');
-    if(!globalRanges.material) globalRanges.material=inferColumnRanges([], 'material');
-    if(!globalRanges.service) globalRanges.service=inferColumnRanges([], 'service');
-
-    const result=extractPageItems(lines,headers,file.name,p,globalRanges);
-    if(result.mode!=='none') documentMode=result.mode;
-    if(result.warning) warnings.push(`Page ${p}: ${result.warning}`);
-    items.push(...result.items);
 
     if(p===1){
       const summary=extractServiceSummary(lines,file.name,p);
       if(summary) serviceSummaries.push(summary);
     }
   }
+  if(!globalRanges.material) globalRanges.material=inferColumnRanges([], 'material');
+  if(!globalRanges.service) globalRanges.service=inferColumnRanges([], 'service');
 
-  if(serviceSummaries.length){
+  const result=extractDocumentItems(allLines,anyHeaderSeen,file.name,globalRanges);
+  const warnings=result.warning?[result.warning]:[];
+
+  if(serviceSummaries.length && result.mode==='service'){
     const completion=serviceSummaries[0]['Completion Date']||'';
-    for(const item of items){
-      if(documentMode==='service') item['Delivery Schedule']=completion;
-    }
+    for(const item of result.items) item['Delivery Schedule']=completion;
   }
 
   return {
     pages:pdf.numPages,
-    items,
+    items:result.items,
     header:extractHeader(pageLines),
     warnings,
-    mode:documentMode,
+    mode:result.mode,
     serviceSummaries
   };
 }
