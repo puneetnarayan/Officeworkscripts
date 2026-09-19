@@ -168,9 +168,6 @@ const FOOTER_PATTERNS = [
   /^P\.O\.\s*No\.?\s*:/i,
   /^VJNR\/\d+/i,
   /^JVML\/\/?C\//i,
-  /^TOTAL DUTIES\/TAXES/i,
-  /^TOTAL BASE VALUE/i,
-  /^TOTAL PO VALUE/i,
   /^AUTHORISED SIGNATORY$/i,
   /^Page\s*No\.?\s*:/i,
   // Purchase Requisition (SAP-style) footer/signature block.
@@ -185,7 +182,21 @@ const FOOTER_PATTERNS = [
   /^Page\s*:\s*\d+\s*\/\s*\d+$/i
 ];
 
+// Marks the true end of the item table: once one of these is seen, the rest
+// of the page/document is order-level summary and terms text, not item
+// data, so collection for the current item stops here entirely rather than
+// skipping past it (unlike FOOTER_PATTERNS' per-page boilerplate, there is
+// no further item content to pick back up afterward).
+const HARD_STOP_PATTERNS = [
+  /^TOTAL DUTIES\/TAXES/i,
+  /^TOTAL BASE VALUE/i,
+  /^TOTAL PO VALUE/i,
+  /^Total Value\s*\(In Words\)/i,
+  /^PRICE BASIS/i
+];
+
 function isFooterText(txt){ return FOOTER_PATTERNS.some(r=>r.test(normalizeText(txt))); }
+function isHardStopText(txt){ return HARD_STOP_PATTERNS.some(r=>r.test(normalizeText(txt))); }
 function isNumberText(x){ return CONFIG.numberRegex.test(normalizeNumberText(x)); }
 
 // A repeated column-heading row (e.g. the table header reprinted at the
@@ -424,7 +435,13 @@ function cleanDescriptionText(arr){
   return normalizeText(arr.join(' '))
     .replace(/(?:Thanking You|Yours sincerely,?|FOR JSW STEEL LIMITED|FOR JSW VIJAYANAGAR METALLICS LIMITED).*$/i,'')
     .replace(/Plant GST No\s*:.*$/i,'')
-    .replace(/JSW Centre,.*$/i,'');
+    .replace(/JSW Centre,.*$/i,'')
+    .replace(/TOTAL DUTIES\/TAXES.*$/i,'')
+    .replace(/TOTAL BASE VALUE.*$/i,'')
+    .replace(/TOTAL PO VALUE.*$/i,'')
+    .replace(/Total Value\s*\(In Words\).*$/i,'')
+    .replace(/PRICE BASIS.*$/i,'')
+    .trim();
 }
 
 function parseMaterialBlock(block,fileName,pageNo,ranges){
@@ -442,6 +459,9 @@ function parseMaterialBlock(block,fileName,pageNo,ranges){
   const desc=[],longDesc=[]; let inLong=false;
   for(let i=itemIndex+1;i<block.length;i++){
     const txt=normalizeText(block[i].text); if(!txt) continue;
+    // Total-value-in-words / price-basis / terms text marks the end of the
+    // item table (nothing after it belongs to any item), so stop entirely.
+    if(isHardStopText(txt)) break;
     // Page-footer boilerplate and reprinted column headers can fall between
     // this item's row and its continuation on the next page; skip them
     // without aborting the rest of the block.
@@ -473,6 +493,9 @@ function parseServiceBlock(block,fileName,pageNo,ranges){
   const texts=[];
   for(let i=itemIndex+1;i<block.length;i++){
     const txt=normalizeText(block[i].text); if(!txt) continue;
+    // Total-value-in-words / price-basis / terms text marks the end of the
+    // item table (nothing after it belongs to any item), so stop entirely.
+    if(isHardStopText(txt)) break;
     // Page-footer boilerplate and reprinted column headers can fall between
     // this item's row and its continuation on the next page; skip them
     // without aborting the rest of the block.
