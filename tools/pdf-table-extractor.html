@@ -29,6 +29,7 @@ h1{margin:0 0 5px;font-size:24px}
 .subtitle{color:var(--muted);font-size:13px}
 .container{max-width:1500px;margin:20px auto;padding:0 18px}
 .card{background:var(--card);border:1px solid #9aa8ba;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px #0000000b}
+.c1{background:#fff8ef}.c2{background:#f1fbf6}.c3{background:#f2f7ff}.c4{background:#fffce8}.c5{background:#f7f0fb}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 button,.file-label{border:1px solid #43546a;background:#edf3fa;color:#253044;padding:9px 14px;border-radius:7px;cursor:pointer;font-weight:600}
 button:hover,.file-label:hover{background:#dce8f6}
@@ -77,7 +78,7 @@ summary{cursor:pointer;font-weight:600}
 
 <div class="container">
 
-  <div class="card">
+  <div class="card c1">
     <div class="dropzone" id="dropzone">
       <strong>Drop PDF file(s) here</strong>
       <span class="small">or use Browse PDF. Multiple PDFs can be processed into one Excel workbook.</span>
@@ -107,7 +108,7 @@ summary{cursor:pointer;font-weight:600}
     </div>
   </div>
 
-  <div class="card" id="previewCard" style="display:none">
+  <div class="card c2" id="previewCard" style="display:none">
     <h2 style="margin:0 0 5px;font-size:18px">Extracted Items</h2>
     <div class="preview-note">Cells are editable. Data is extracted as it appears in the PDF; no mathematical validation is performed. Page number is retained for traceability.</div>
     <div class="filters">
@@ -119,19 +120,19 @@ summary{cursor:pointer;font-weight:600}
     </div>
   </div>
 
-  <div class="card" id="headerCard" style="display:none">
+  <div class="card c3" id="headerCard" style="display:none">
     <h2 style="margin:0 0 8px;font-size:18px">PO Header Preview</h2>
     <div class="table-wrap" style="max-height:360px">
       <table id="headerTable"></table>
     </div>
   </div>
 
-  <div class="card" id="serviceSummaryCard" style="display:none">
+  <div class="card c4" id="serviceSummaryCard" style="display:none">
     <h2 style="margin:0 0 8px;font-size:18px">Service Order Summary</h2>
     <div class="table-wrap" style="max-height:240px"><table id="serviceSummaryTable"></table></div>
   </div>
 
-  <div class="card" id="validationCard" style="display:none">
+  <div class="card c5" id="validationCard" style="display:none">
     <h2 style="margin:0 0 8px;font-size:18px">Validation / Extraction Diagnostics</h2>
     <div id="validationSummary" class="status"></div>
     <details>

@@ -21,6 +21,7 @@ body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:linear-gradient(1
 .app{max-width:1280px;margin:auto;padding:24px}
 h1{margin:0 0 6px}.sub{color:var(--muted);margin-bottom:20px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin:16px 0;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.c1{background:#fff8ef}.c2{background:#f1fbf6}.c3{background:#f2f7ff}.c4{background:#fffce8}
 .drop{border:2px dashed #b6c2d0;border-radius:14px;padding:34px;text-align:center;background:#fbfdff;cursor:pointer}
 .drop.drag{border-color:var(--accent);background:#fff7ef}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
@@ -57,7 +58,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
   <h1>Smart Excel to PDF Converter v14</h1>
   <div class="sub">Automatic workbook analysis, live PDF preview, repeated headers, Excel colour/style preservation, TOC and navigation.</div>
 
-  <div class="card">
+  <div class="card c1">
     <div id="drop" class="drop">
       <b>Drop Excel file here</b><br><span class="small">or click to browse (.xlsx, .xls, .xlsm)</span>
       <input id="file" type="file" accept=".xlsx,.xls,.xlsm" hidden>
@@ -65,7 +66,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
     <div id="fileInfo" class="small" style="margin-top:10px"></div>
   </div>
 
-  <div class="card">
+  <div class="card c2">
     <div class="grid">
       <div class="field"><label>Preferred font size (pt)</label><input id="prefFont" type="number" value="10" min="6" max="20"></div>
       <div class="field"><label>Minimum readable font (pt)</label><input id="minFont" type="number" value="7" min="5" max="18"></div>
@@ -81,13 +82,13 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
     <div id="status"></div>
   </div>
 
-  <div id="analysisCard" class="card hidden">
+  <div id="analysisCard" class="card c3 hidden">
     <h3>Worksheet Layout Analysis</h3>
     <div class="small">Changes to Paper, Orientation, Font or Header rows update the preview automatically.</div>
     <div class="tablewrap"><table id="analysis"><thead><tr><th>#</th><th>Worksheet</th><th>Rows</th><th>Cols</th><th>Paper</th><th>Orientation</th><th>Font</th><th>Header rows</th></tr></thead><tbody></tbody></table></div>
   </div>
 
-  <div id="previewCard" class="card hidden">
+  <div id="previewCard" class="card c4 hidden">
     <h3>PDF Preview</h3>
     <div class="small">Preview updates automatically. Check the second and later pages of a worksheet to verify repeated headers.</div>
     <div id="previewInfo" class="small" style="margin:10px 0"></div>
