@@ -124,8 +124,11 @@ hamburger.addEventListener("click", () => {
   setCollapsed(!sidebar.classList.contains("collapsed"));
 });
 try {
-  if (localStorage.getItem("sidebarCollapsed") === "1") setCollapsed(true);
-} catch (e) {}
+  // Collapsed by default; only stays expanded if the user explicitly expanded it before.
+  setCollapsed(localStorage.getItem("sidebarCollapsed") !== "0");
+} catch (e) {
+  setCollapsed(true);
+}
 </script>
 </body>
 </html>

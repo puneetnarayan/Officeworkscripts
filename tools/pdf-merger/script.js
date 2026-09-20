@@ -10,7 +10,18 @@ drop.addEventListener("drop",e=>addFiles([...e.dataTransfer.files]));
 function addFiles(a){
  const v=a.filter(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));
  if(!v.length)return setStatus("Please select valid PDF files.","err");
- files.push(...v); sortDefault(); render(); setStatus(v.length+" PDF file(s) added.","ok");
+
+ const existingNames=new Set(files.map(f=>f.name.toLowerCase()));
+ const dupes=v.filter(f=>existingNames.has(f.name.toLowerCase()));
+ let toAdd=v;
+ if(dupes.length){
+  const names=[...new Set(dupes.map(f=>f.name))].join(", ");
+  const proceed=confirm(`This file is already in the list: ${names}\n\nAdd it again anyway?`);
+  if(!proceed) toAdd=v.filter(f=>!dupes.includes(f));
+ }
+ if(!toAdd.length)return setStatus("No files added (duplicate skipped).","err");
+
+ files.push(...toAdd); sortDefault(); render(); setStatus(toAdd.length+" PDF file(s) added.","ok");
 }
 function prefix(n){let m=n.match(/^(\d+)_/);return m?+m[1]:null}
 function sortDefault(){files.sort((a,b)=>{let x=prefix(a.name),y=prefix(b.name);if(x!==null&&y!==null)return x-y;if(x!==null)return-1;if(y!==null)return 1;return a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"})})}
@@ -18,12 +29,20 @@ function render(){
  list.innerHTML="";
  if(!files.length){list.innerHTML='<div class="empty">No PDF files added yet.</div>';return}
  files.forEach((f,i)=>{
-  const d=document.createElement("div");d.className="item";d.draggable=true;d.dataset.i=i;
-  d.innerHTML=`<div class="handle">⠿</div><div class="num">${i+1}</div><div class="info"><div class="name">${esc(f.name)}</div><div class="size">${size(f.size)}</div></div><button class="delete" data-del="${i}">✕ Delete</button>`;
+  const d=document.createElement("div");d.className="item"+(f.__moved?" moved":"");d.draggable=true;d.dataset.i=i;
+  d.innerHTML=`<div class="handle">⠿</div><div class="num">${i+1}</div><div class="info"><div class="name">${esc(f.name)}${f.__moved?' <span class="moved-tag">moved</span>':""}</div><div class="size">${size(f.size)}</div></div><button class="delete" data-del="${i}">✕ Delete</button>`;
   d.addEventListener("dragstart",()=>{dragIndex=i;d.classList.add("dragging")});
   d.addEventListener("dragend",()=>{dragIndex=null;d.classList.remove("dragging")});
   d.addEventListener("dragover",e=>e.preventDefault());
-  d.addEventListener("drop",e=>{e.preventDefault();let target=i;if(dragIndex===null||dragIndex===target)return;let moved=files.splice(dragIndex,1)[0];files.splice(target,0,moved);render()});
+  d.addEventListener("drop",e=>{
+   e.preventDefault();
+   let target=i;
+   if(dragIndex===null||dragIndex===target)return;
+   let moved=files.splice(dragIndex,1)[0];
+   moved.__moved=true;
+   files.splice(target,0,moved);
+   render();
+  });
   list.appendChild(d);
  });
 }
