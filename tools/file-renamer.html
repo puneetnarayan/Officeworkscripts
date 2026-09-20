@@ -9,6 +9,7 @@ body{font-family:Segoe UI,Arial,sans-serif;background:#f4f6f8;color:#202124;marg
 .wrap{max-width:1100px;margin:auto}
 h1{margin:0 0 6px}.sub{color:#666;margin-bottom:22px}
 .card{background:#fff;padding:20px;border-radius:10px;margin:14px 0;box-shadow:0 2px 8px #00000012}
+.c1{background:#fff8ef}.c2{background:#f1fbf6}.c3{background:#f2f7ff}.c4{background:#fffce8}.c5{background:#f7f0fb}.c6{background:#fdf2f4}
 .step{font-size:17px;font-weight:700;margin-bottom:12px}
 .row{display:flex;gap:10px;align-items:center}
 button{border:0;border-radius:7px;padding:10px 16px;font-weight:600;cursor:pointer}
@@ -37,7 +38,7 @@ th{background:#f8fafc;position:sticky;top:0}
 <h1>OneDrive Master File Renamer</h1>
 <div class="sub">Creates a separate copy for every company while leaving the original files unchanged.</div>
 
-<div class="card">
+<div class="card c1">
 <div class="step">1. Source Folder</div>
 <div class="row">
 <button class="primary" id="srcBtn">Browse Source Folder</button>
@@ -45,13 +46,13 @@ th{background:#f8fafc;position:sticky;top:0}
 </div>
 </div>
 
-<div class="card">
+<div class="card c2">
 <div class="step">2. Company Names</div>
 <textarea id="companies" placeholder="Comp1, Comp2, Comp3, Comp4"></textarea>
 <div style="font-size:12px;color:#64748b;margin-top:7px">Enter company names separated by commas.</div>
 </div>
 
-<div class="card">
+<div class="card c3">
 <div class="step">3. Destination Folder</div>
 <div class="row">
 <button class="primary" id="dstBtn">Browse Destination Folder</button>
@@ -59,7 +60,7 @@ th{background:#f8fafc;position:sticky;top:0}
 </div>
 </div>
 
-<div class="card">
+<div class="card c4">
 <div class="step">4. Replacement Options</div>
 <label>String to replace</label>
 <input id="findText" value="master">
@@ -70,7 +71,7 @@ th{background:#f8fafc;position:sticky;top:0}
 </div>
 </div>
 
-<div class="card">
+<div class="card c5">
 <div class="step">5. Preview and Create</div>
 <div class="row">
 <button class="secondary" id="scanBtn" disabled>Scan & Preview</button>
@@ -88,7 +89,7 @@ th{background:#f8fafc;position:sticky;top:0}
 </div>
 </div>
 
-<div class="card">
+<div class="card c6">
 <div class="step">Activity Log</div>
 <div id="log" class="log">Ready.</div>
 </div>

@@ -8,6 +8,7 @@
 *{box-sizing:border-box}body{margin:0;padding:28px;font-family:"Segoe UI",Arial,sans-serif;background:#f4f6f8;color:#202124}
 .wrap{max-width:1120px;margin:auto}h1{margin:0 0 6px;font-size:28px}.sub{color:#667085;margin-bottom:22px}
 .card{background:#fff;border-radius:11px;padding:20px;margin:14px 0;box-shadow:0 2px 9px #00000012}.step{font-size:17px;font-weight:700;margin-bottom:12px}
+.c1{background:#fff8ef}.c2{background:#f2f7ff}.c3{background:#f1fbf6}.c4{background:#fffce8}.c5{background:#f7f0fb}.c6{background:#fdf2f4}
 .row{display:flex;gap:10px;align-items:center}button{border:0;border-radius:7px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}
 .primary{background:#2563eb;color:#fff}.success{background:#15803d;color:#fff}.secondary{background:#e5e7eb;color:#111827}button:disabled{opacity:.45;cursor:not-allowed}
 .path{flex:1;min-height:41px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;overflow-wrap:anywhere}
@@ -26,25 +27,25 @@ code{background:#eef2f7;padding:2px 4px;border-radius:3px}
 <h1>Folder & File Company Copier</h1>
 <div class="sub">Creates a new company-specific folder and copies the files into it, without changing the originals.</div>
 
-<div class="card">
+<div class="card c1">
 <div class="step">1. Select Source Folder</div>
 <div class="row"><button class="primary" id="sourceBtn">Browse Source Folder</button><div class="path" id="sourcePath">No folder selected</div></div>
 <div style="font-size:12px;color:#64748b;margin-top:8px">Select the folder whose name needs to be changed and whose files need to be copied.</div>
 </div>
 
-<div class="card">
+<div class="card c2">
 <div class="step">2. Select Destination Folder</div>
 <div class="row"><button class="primary" id="destBtn">Browse Destination Folder</button><div class="path" id="destPath">No folder selected</div></div>
 <div style="font-size:12px;color:#64748b;margin-top:8px">New company folders will be created directly inside this destination folder.</div>
 </div>
 
-<div class="card">
+<div class="card c3">
 <div class="step">3. Company Names</div>
 <textarea id="companies" placeholder="Comp1, Comp2, Comp3, Comp4"></textarea>
 <div style="font-size:12px;color:#64748b;margin-top:8px">Enter company names separated by commas. One new folder will be created for each company.</div>
 </div>
 
-<div class="card">
+<div class="card c4">
 <div class="step">4. Replacement Rules</div>
 <label for="folderString">String to replace in the SOURCE FOLDER NAME</label>
 <input type="text" id="folderString" value="master">
@@ -58,7 +59,7 @@ code{background:#eef2f7;padding:2px 4px;border-radius:3px}
 </div>
 </div>
 
-<div class="card">
+<div class="card c5">
 <div class="step">5. Scan & Preview</div>
 <div class="row"><button class="secondary" id="scanBtn" disabled>Scan & Preview</button><button class="success" id="createBtn" disabled>Create Folders & Files</button></div>
 <div class="stats">
@@ -73,7 +74,7 @@ code{background:#eef2f7;padding:2px 4px;border-radius:3px}
 </table></div></div>
 </div>
 
-<div class="card"><div class="step">Activity Log</div><div id="log" class="log">Ready.</div></div>
+<div class="card c6"><div class="step">Activity Log</div><div id="log" class="log">Ready.</div></div>
 
 <div class="note"><strong>Example:</strong><br>
 Source folder: <code>Project_master_2026</code><br>
