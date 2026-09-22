@@ -55,7 +55,12 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .sheetResetBtn:hover{color:var(--ink);border-color:#b9c4d0}
 .colResizeOverlay{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
 .colResizeHandle{position:absolute;top:0;bottom:0;width:9px;margin-left:-4.5px;cursor:col-resize;pointer-events:auto;z-index:6}
+.colResizeHandle::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(35,48,71,.18);transition:background .1s}
+.colResizeHandle.edge::after{background:rgba(35,48,71,.35)}
 .colResizeHandle:hover,.colResizeHandle.active{background:rgba(232,117,26,.4)}
+.colResizeHandle:hover::after,.colResizeHandle.active::after{background:rgba(232,117,26,.9)}
+.colResizeHandle.edge[data-dir="left"]{margin-left:0}
+.colResizeHandle.edge[data-dir="right"]{margin-left:-9px}
 </style>
 </head>
 <body>
@@ -193,26 +198,44 @@ function cssCell(cell,sheetName,row,col){const s=getExactStyle(cell,sheetName,ro
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
 // Wraps a rendered table with an invisible full-height overlay carrying one
-// drag handle per column boundary, positioned by the exact same cumulative
-// colPx proportions as the table's own <col> widths - so a handle always
-// sits exactly on the column line it resizes, at exactly the page's own
-// width, on the page itself (not a separate control that can drift out of
-// sync with it).
+// drag handle per column boundary - including the table's own left and
+// right edges, so the first and last columns are resizable too, not just
+// the ones with a boundary on both sides. Handles are positioned by the
+// exact same cumulative colPx proportions as the table's own <col> widths,
+// so a handle always sits exactly on the column line it resizes, at
+// exactly the page's own width, on the page itself (not a separate control
+// that can drift out of sync with it). Each carries a persistent (if
+// subtle) visible line via CSS so the draggable boundaries are visible at
+// rest, not just discoverable by hovering blindly.
 function wrapInteractive(table,ws,visCols){
   const wrap=document.createElement("div");wrap.style.position="relative";
   wrap.appendChild(table);
-  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
   const overlay=document.createElement("div");overlay.className="colResizeOverlay";
-  let cum=0;
-  for(let i=0;i<visCols.length-1;i++){
-    cum+=colPx(ws,visCols[i]);
-    const handle=document.createElement("div");handle.className="colResizeHandle";
-    handle.style.left=(cum/total*100)+"%";
-    handle.dataset.sheet=ws.__sheetName||"";handle.dataset.col=visCols[i];
+  // Boundary 0 = the table's left edge (resizes column 0, growing it as you
+  // drag left, away from the table). Boundary i in 1..n-1 = between column
+  // i-1 and column i (resizes column i-1, growing it as you drag right -
+  // this is the original interior-handle behaviour). Boundary n = the
+  // table's right edge (resizes the last column, growing it as you drag
+  // right, same convention as the interior handles).
+  for(let b=0;b<=visCols.length;b++){
+    const handle=document.createElement("div");
+    handle.className="colResizeHandle"+((b===0||b===visCols.length)?" edge":"");
+    handle.dataset.sheet=ws.__sheetName||"";
+    handle.dataset.col=b===0?visCols[0]:visCols[b-1];
+    handle.dataset.dir=b===0?"left":"right";
     overlay.appendChild(handle);
   }
   wrap.appendChild(overlay);
+  positionHandles(overlay,ws,visCols);
   return wrap;
+}
+function positionHandles(overlay,ws,visCols){
+  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
+  let cum=0;
+  Array.from(overlay.children).forEach((h,idx)=>{
+    if(idx>0)cum+=colPx(ws,visCols[idx-1]);
+    h.style.left=(cum/total*100)+"%";
+  });
 }
 // Live, cheap visual feedback while dragging: patch every rendered <col>'s
 // width (and the resize-handle overlay's positions) for every page of this
@@ -231,10 +254,9 @@ function updateColgroups(sheetName){
     visCols.forEach((c,i)=>{if(cols[i])cols[i].style.width=(colPx(ws,c)/total*100)+"%"});
   });
   document.querySelectorAll(`#previewPages .colResizeOverlay`).forEach(overlay=>{
-    const handles=Array.from(overlay.children);
-    if(!handles.length||handles[0].dataset.sheet!==sheetName)return;
-    let cum=0;
-    handles.forEach(h=>{cum+=colPx(ws,+h.dataset.col);h.style.left=(cum/total*100)+"%"});
+    const first=overlay.children[0];
+    if(!first||first.dataset.sheet!==sheetName)return;
+    positionHandles(overlay,ws,visCols);
   });
 }
 function makeTable(ws,d,start,end,font,scale,visCols){
@@ -275,7 +297,7 @@ function measureRowHeights(ws,d,font,scale,bodyWidthPt,visCols){
   return heights;
 }
 function pageDiv(sz,margin,footer,pageNo,home){const page=document.createElement("div");page.className="pdf-page";page.style.width=sz.w+"pt";page.style.height=sz.h+"pt";const body=document.createElement("div");body.className="page-body";body.style.left=margin+"pt";body.style.top=margin+"pt";body.style.width=(sz.w-2*margin)+"pt";body.style.height=(sz.h-2*margin-32)+"pt";page.appendChild(body);const fl=document.createElement("div");fl.className="footer-left";fl.style.left=margin+"pt";fl.style.width=(sz.w-2*margin-95)+"pt";fl.textContent=footer;page.appendChild(fl);const fr=document.createElement("div");fr.className="footer-right";fr.style.right=margin+"pt";fr.textContent="Page "+pageNo;page.appendChild(fr);if(home){const h=document.createElement("div");h.className="home";h.textContent="HOME";page.appendChild(h)}return{page,body}}
-function buildSheet(x,opt,startNo){const ws=wb.Sheets[x.name],d=dims(ws);if(!d)return[];const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7,bodyWidthPt=sz.w-2*opt.margin,usable=sz.h-2*opt.margin-32-titleH-3,scale=Math.min(1,bodyWidthPt/(widthPx(ws,d)*.75));
+function buildSheet(x,opt,startNo,interactive){const ws=wb.Sheets[x.name],d=dims(ws);if(!d)return[];const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7,bodyWidthPt=sz.w-2*opt.margin,usable=sz.h-2*opt.margin-32-titleH-3,scale=Math.min(1,bodyWidthPt/(widthPx(ws,d)*.75));
   // Excel's stored row height can be stale relative to actual wrapped content
   // (e.g. text edited after the row was last auto-fit, or our column widths
   // differ slightly from Excel's own). Pagination must use each row's real
@@ -284,7 +306,12 @@ function buildSheet(x,opt,startNo){const ws=wb.Sheets[x.name],d=dims(ws);if(!d)r
   const visCols=visibleCols(ws,d);
   const rowHeights=measureRowHeights(ws,d,x.font,scale,bodyWidthPt,visCols);
   const hpt=r=>rowHeights[r-d.r.s.r]??Math.max(14,rowPt(ws,r)*.75);
-  let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[],pageIdxInSheet=0;while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=hpt(r);const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers){const headerTable=makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale,visCols);pg.body.appendChild(wrapInteractive(headerTable,ws,visCols))}const dataTable=makeTable(ws,d,a,cur-1,x.font,scale,visCols);pg.body.appendChild(wrapInteractive(dataTable,ws,visCols));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers,pageIdxInSheet});no++;first=false;pageIdxInSheet++}return out}
+  // interactive=false (used for the actual PDF capture) skips the resize-handle
+  // overlay entirely - it's live-preview-only UI chrome, never meant to be
+  // part of the document, and keeping the captured page's DOM identical to
+  // a plain table avoids handing html2canvas anything unusual to trip over.
+  const place=interactive?(el)=>wrapInteractive(el,ws,visCols):(el)=>el;
+  let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[],pageIdxInSheet=0;while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=hpt(r);const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers){const headerTable=makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale,visCols);pg.body.appendChild(place(headerTable))}const dataTable=makeTable(ws,d,a,cur-1,x.font,scale,visCols);pg.body.appendChild(place(dataTable));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers,pageIdxInSheet});no++;first=false;pageIdxInSheet++}return out}
 function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
 function getOpt(){return{margin:Math.max(.75,+$("margin").value||.75)*PT,pref:+$("prefFont").value||10,min:+$("minFont").value||7,showFilename:$("showFilename").checked,home:$("home").checked,index:$("index").checked}}
 function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetNames.map((name,i)=>{const ws=wb.Sheets[name],d=dims(ws);if(!d)return{i,name,empty:true,paper:"A4",orientation:"portrait",font:opt.pref,headers:0};const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,headers:+$("headerRows").value||autoHeader(ws,d)}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td><select class="paper" data-i="${x.i}"><option ${x.paper==="A4"?"selected":""}>A4</option><option ${x.paper==="A3"?"selected":""}>A3</option></select></td><td><select class="orient" data-i="${x.i}"><option value="portrait" ${x.orientation==="portrait"?"selected":""}>Portrait</option><option value="landscape" ${x.orientation==="landscape"?"selected":""}>Landscape</option></select></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="number" value="${x.headers}" min="0" max="20" style="width:65px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{el.addEventListener("input",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()});el.addEventListener("change",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()})});$("analysisCard").classList.remove("hidden");$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Preview updates automatically.`)}
@@ -316,7 +343,7 @@ function renderPreview(){
     const resetBtn=document.createElement("button");resetBtn.type="button";resetBtn.className="sheetResetBtn";resetBtn.textContent=`Reset "${x.name}" columns to Excel widths`;resetBtn.dataset.sheet=x.name;
     resetRow.appendChild(resetBtn);
     displayFrag.appendChild(resetRow);
-    const pages=buildSheet(x,opt,no);
+    const pages=buildSheet(x,opt,no,true);
     pages.forEach(p=>{
       p.el.dataset.sheet=x.name;p.el.dataset.pageIdx=String(p.pageIdxInSheet);
       displayFrag.appendChild(p.el.cloneNode(true));
@@ -360,7 +387,7 @@ async function capture(pdf,el,sz){
   const canvas=await html2canvas(el,{scale:2,useCORS:true,allowTaint:true,backgroundColor:"#ffffff",logging:false,letterRendering:true,width:Math.ceil(sz.w*1.3333),height:Math.ceil(sz.h*1.3333)});
   pdf.addImage(canvas.toDataURL("image/jpeg",.92),"JPEG",0,0,sz.w,sz.h,undefined,"FAST");
 }
-async function generatePdf(){if(!results.length){alert("Select an Excel workbook first.");return}const btn=$("generate");btn.disabled=true;$("progress").style.display="block";$("progress").value=0;try{const opt=getOpt();let no=opt.index?2:1,all=[],starts=[];for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const p=buildSheet(x,opt,no);all.push(...p);no+=p.length}const total=all.length+(opt.index?1:0);if(!total)throw new Error("No printable worksheets found.");let pdf=null,done=0;const renderHost=$("renderHost");if(opt.index){const ix=createIndexPage(starts,opt,all.length);pdf=new jsPDF({orientation:"portrait",unit:"pt",format:"a4",compress:true});renderHost.appendChild(ix);await capture(pdf,ix,{w:PAPERS.A4[0],h:PAPERS.A4[1]});renderHost.removeChild(ix);done++;$("progress").value=done/total*100}for(const p of all){if(!pdf)pdf=new jsPDF({orientation:p.x.orientation,unit:"pt",format:p.x.paper.toLowerCase(),compress:true});else pdf.addPage(p.x.paper.toLowerCase(),p.x.orientation);renderHost.appendChild(p.el);await capture(pdf,p.el,p.sz);renderHost.removeChild(p.el);done++;$("progress").value=done/total*100;status(`Generating page ${done} of ${total}...`)}if(opt.index){const indexPage=1;starts.forEach((s,i)=>{const rowY=155+i*27;pdf.setPage(indexPage);pdf.link(105,rowY,320,23,{pageNumber:s.no,top:0})});for(const p of all){pdf.setPage(p.no);if(opt.home)pdf.link(p.sz.w-80,5,75,25,{pageNumber:indexPage,top:0})}}let name=$("output").value.trim()||fileObj.name.replace(/\.[^.]+$/i,"")+".pdf";if(!/\.pdf$/i.test(name))name+=".pdf";pdf.save(name);status(`PDF generated successfully and download started.\n${total} page(s) created.`);$("progress").value=100}catch(e){console.error(e);status("Generation failed: "+e.message+"\n\nTechnical details:\n"+(e.stack||"No stack trace available"));alert("Generation failed: "+e.message)}finally{btn.disabled=false}}
+async function generatePdf(){if(!results.length){alert("Select an Excel workbook first.");return}const btn=$("generate");btn.disabled=true;$("progress").style.display="block";$("progress").value=0;try{const opt=getOpt();let no=opt.index?2:1,all=[],starts=[];for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const p=buildSheet(x,opt,no,false);all.push(...p);no+=p.length}const total=all.length+(opt.index?1:0);if(!total)throw new Error("No printable worksheets found.");let pdf=null,done=0;const renderHost=$("renderHost");if(opt.index){const ix=createIndexPage(starts,opt,all.length);pdf=new jsPDF({orientation:"portrait",unit:"pt",format:"a4",compress:true});renderHost.appendChild(ix);await capture(pdf,ix,{w:PAPERS.A4[0],h:PAPERS.A4[1]});renderHost.removeChild(ix);done++;$("progress").value=done/total*100}for(const p of all){if(!pdf)pdf=new jsPDF({orientation:p.x.orientation,unit:"pt",format:p.x.paper.toLowerCase(),compress:true});else pdf.addPage(p.x.paper.toLowerCase(),p.x.orientation);renderHost.appendChild(p.el);await capture(pdf,p.el,p.sz);renderHost.removeChild(p.el);done++;$("progress").value=done/total*100;status(`Generating page ${done} of ${total}...`)}if(opt.index){const indexPage=1;starts.forEach((s,i)=>{const rowY=155+i*27;pdf.setPage(indexPage);pdf.link(105,rowY,320,23,{pageNumber:s.no,top:0})});for(const p of all){pdf.setPage(p.no);if(opt.home)pdf.link(p.sz.w-80,5,75,25,{pageNumber:indexPage,top:0})}}let name=$("output").value.trim()||fileObj.name.replace(/\.[^.]+$/i,"")+".pdf";if(!/\.pdf$/i.test(name))name+=".pdf";pdf.save(name);status(`PDF generated successfully and download started.\n${total} page(s) created.`);$("progress").value=100}catch(e){console.error(e);status("Generation failed: "+e.message+"\n\nTechnical details:\n"+(e.stack||"No stack trace available"));alert("Generation failed: "+e.message)}finally{btn.disabled=false}}
 async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");COL_OVERRIDES=new Map();try{const buf=await f.arrayBuffer();await loadExactStyles(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
 // Column-resize drag: event delegation so it keeps working after renderPreview()
 // replaces #previewPages's children (and clones them into the live preview).
@@ -371,7 +398,7 @@ $("previewPages").addEventListener("mousedown",e=>{
   const handle=e.target.closest(".colResizeHandle");
   if(!handle)return;
   e.preventDefault();
-  const sheetName=handle.dataset.sheet,col=+handle.dataset.col;
+  const sheetName=handle.dataset.sheet,col=+handle.dataset.col,dir=handle.dataset.dir||"right";
   const ws=wb.Sheets[sheetName],d=dims(ws);
   if(!ws||!d)return;
   const visCols=visibleCols(ws,d);
@@ -382,13 +409,18 @@ $("previewPages").addEventListener("mousedown",e=>{
   // accounts for any zoom/scale in effect, so the drag-to-width conversion
   // below is correct regardless of how compressed this sheet's page is.
   const renderedWidth=table.getBoundingClientRect().width;
-  colDrag={sheetName,col,startColPx:colPx(ws,col),startX:e.clientX,pxPerUnit:renderedWidth/total};
+  colDrag={sheetName,col,dir,startColPx:colPx(ws,col),startX:e.clientX,pxPerUnit:renderedWidth/total};
   handle.classList.add("active");
   document.body.style.cursor="col-resize";
 });
 window.addEventListener("mousemove",e=>{
   if(!colDrag)return;
-  const deltaPx=e.clientX-colDrag.startX;
+  const rawDelta=e.clientX-colDrag.startX;
+  // The left-edge handle resizes column 0 from its own left boundary, so
+  // dragging left (away from the table) should grow it - the opposite
+  // sign convention from every other handle, which grows the column to
+  // its left as you drag right.
+  const deltaPx=colDrag.dir==="left"?-rawDelta:rawDelta;
   const newColPx=Math.max(15,Math.round(colDrag.startColPx+deltaPx/colDrag.pxPerUnit));
   COL_OVERRIDES.set(colDrag.sheetName+"!"+colDrag.col,newColPx);
   updateColgroups(colDrag.sheetName);
