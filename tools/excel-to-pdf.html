@@ -50,7 +50,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .footer-left,.footer-right{position:absolute;bottom:9px;font:8pt Arial;color:#333}
 .footer-left{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.footer-right{right:0}
 .sheet-name{font-weight:700;margin-bottom:7px}
-.excel-table{border-collapse:collapse;table-layout:fixed;width:100%}
+.excel-table{border-collapse:collapse;table-layout:fixed;width:auto}
 .excel-table td,.excel-table th{border:1px solid #555;padding:3px 5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;background-clip:padding-box}.excel-table tr{break-inside:avoid;page-break-inside:avoid}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
@@ -331,38 +331,74 @@ function estimatedRowHeight(ws,d,r,font){
   }
   return Math.max(rowPt(ws,r)*.75,Math.min(220,maxLines*font*1.42+10));
 }
+function measureSheetPage(page){
+  const body=page.querySelector(".page-body");
+  if(!body)return Infinity;
+  const br=body.getBoundingClientRect();
+  let bottom=0;
+  for(const el of Array.from(body.children)){
+    const r=el.getBoundingClientRect();
+    bottom=Math.max(bottom,r.bottom-br.top);
+  }
+  return bottom;
+}
+function makeSheetPage(x,opt,startNo,startRow,endRow,scale,hdr,repeatHeader){
+  const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name;
+  const sz=pageSize(x.paper,x.orientation);
+  const pg=pageDiv(sz,opt.margin,footer,startNo,opt.home);
+  const title=document.createElement("div");
+  title.className="sheet-name";
+  title.style.fontSize=Math.max(10,x.font+2)+"pt";
+  title.textContent=x.name;
+  pg.body.appendChild(title);
+  const ws=wb.Sheets[x.name],d=dims(ws);
+  if(repeatHeader&&hdr)pg.body.appendChild(makeTable(ws,d,hdr.start,hdr.end,x.font,scale));
+  pg.body.appendChild(makeTable(ws,d,startRow,endRow,x.font,scale));
+  return {el:pg.page,x,no:startNo,sheet:x.name,sz,repeat:repeatHeader&&!!hdr};
+}
+function measuredSheetHeight(x,opt,startNo,startRow,endRow,scale,hdr,repeatHeader){
+  const candidate=makeSheetPage(x,opt,startNo,startRow,endRow,scale,hdr,repeatHeader);
+  const host=$("renderHost");
+  host.appendChild(candidate.el);
+  const height=measureSheetPage(candidate.el);
+  host.removeChild(candidate.el);
+  return height;
+}
 function buildSheet(x,opt,startNo){
   const ws=wb.Sheets[x.name],d=dims(ws),images=SHEET_IMAGES.get(x.name)||[];
   if(!d)return buildImageOnlySheet(x,opt,startNo);
-  const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7;
-  const usable=Math.max(30,sz.h-2*opt.margin-32-titleH);
+  const sz=pageSize(x.paper,x.orientation);
+  const bodyHeight=Math.max(30,sz.h-2*opt.margin-32);
   const baseScale=x.scale||1;
   const fit=fitColumnsToPage(ws,d,x.paper,x.orientation,opt.margin);
   const scale=Math.min(baseScale,fit.scale*baseScale);
   const hdr=parseHeaderRange(x.headers,d);
   let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[];
   while(cur<=end){
-    let used=0;
-    if(!first&&hdr){
-      for(let r=hdr.start;r<=hdr.end;r++)used+=estimatedRowHeight(ws,d,r,x.font)*scale*1.12;
+    const repeatHeader=!first&&!!hdr;
+    let lo=cur,hi=end,best=cur;
+    while(lo<=hi){
+      const mid=Math.floor((lo+hi)/2);
+      const h=measuredSheetHeight(x,opt,no,cur,mid,scale,hdr,repeatHeader);
+      if(h<=bodyHeight+0.5){
+        best=mid;
+        lo=mid+1;
+      }else{
+        hi=mid-1;
+      }
     }
-    const a=cur;
-    while(cur<=end){
-      const h=estimatedRowHeight(ws,d,cur,x.font)*scale*1.12;
-      if(cur>a&&used+h>usable)break;
-      used+=h;cur++;
-    }
-    if(cur===a)cur++;
-    const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name;
-    const pg=pageDiv(sz,opt.margin,footer,no,opt.home);
-    const title=document.createElement("div");
-    title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);
-    if(!first&&hdr)pg.body.appendChild(makeTable(ws,d,hdr.start,hdr.end,x.font,scale));
-    pg.body.appendChild(makeTable(ws,d,a,cur-1,x.font,scale));
-    out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&!!hdr});
-    no++;first=false;
+    if(best<cur)best=cur;
+    const page=makeSheetPage(x,opt,no,cur,best,scale,hdr,repeatHeader);
+    out.push(page);
+    cur=best+1;
+    no++;
+    first=false;
   }
-  if(images.length){const ip=buildImageOnlySheet(x,opt,no);out.push(...ip);no+=ip.length}
+  if(images.length){
+    const ip=buildImageOnlySheet(x,opt,no);
+    out.push(...ip);
+    no+=ip.length;
+  }
   return out;
 }
 function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
