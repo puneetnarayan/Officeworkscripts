@@ -180,7 +180,15 @@ function cssCell(cell,sheetName,row,col){const s=getExactStyle(cell,sheetName,ro
   if(isSolid){const bg=excelColorToCss(fill.fgColor);if(bg)st.push(`background-color:${bg}!important`)}
   const fg=excelColorToCss(font.color);if(fg)st.push(`color:${fg}!important`);
   if(font.bold)st.push("font-weight:bold");if(font.italic)st.push("font-style:italic");if(font.underline)st.push("text-decoration:underline");if(font.sz)st.push(`font-size:${font.sz}pt`);if(font.name)st.push(`font-family:"${String(font.name).replace(/"/g,"")}",Arial,sans-serif`);
-  if(al.horizontal){const h=al.horizontal==="centerContinuous"?"center":al.horizontal;st.push(`text-align:${h}`)}if(al.vertical)st.push(`vertical-align:${al.vertical}`);st.push(al.wrapText?"white-space:normal":"white-space:pre-wrap");
+  if(al.horizontal){const h=al.horizontal==="centerContinuous"?"center":al.horizontal;st.push(`text-align:${h}`)}if(al.vertical)st.push(`vertical-align:${al.vertical}`);
+  // Always pre-wrap, never plain "normal" wrapping. html2canvas has a
+  // long-documented bug where wrapped white-space:normal text can have the
+  // spaces between words silently dropped when it reconstructs the wrapped
+  // lines for the canvas (the live DOM preview, using the browser's own
+  // wrapping, is unaffected - this only shows up in the captured PDF).
+  // pre-wrap still wraps at the same points but explicitly preserves every
+  // whitespace character, sidestepping that code path entirely.
+  st.push("white-space:pre-wrap");
   ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#444";st.push(`border-${k}:1px solid ${bc}`)}});return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
