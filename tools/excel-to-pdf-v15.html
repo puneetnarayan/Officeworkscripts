@@ -50,16 +50,12 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .small{font-size:12px;color:var(--muted)}
 
 .index-title{text-align:center;margin:0 0 8pt}.index-filename{text-align:center;font-weight:700;font-size:12pt;margin-bottom:12pt}.index-instruction{text-align:center;color:#6aaee8;font-size:9pt;margin-bottom:12pt}.index-table a{color:#66aee8;text-decoration:underline;font-weight:600}.index-timestamp{position:absolute;left:54pt;right:54pt;bottom:24pt;text-align:center;font-size:9pt;color:#555}.previewPages{display:flex;flex-direction:column;gap:18px;align-items:center;max-height:900px;overflow:auto;padding:12px;background:#eef4fa;border-radius:10px}.previewPages .pdf-page{box-shadow:0 3px 12px rgba(0,0,0,.16);flex:none;transform-origin:top center;max-width:100%}.previewTag{position:absolute;right:10pt;top:8pt;background:#d9efff;color:#2b75a5;padding:3pt 6pt;border-radius:4pt;font:700 7pt Arial}.previewPages .index-page{transform:scale(.72);margin-bottom:-25%;}.previewPages .pdf-page:not(.index-page){transform:scale(.72);margin-bottom:-25%;}
-.colWidthBar{width:100%;max-width:900px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.colWidthBarHead{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);margin-bottom:8px;gap:10px}
-.colWidthBarHead b{color:var(--ink)}
-.colWidthReset{background:#e9eef4;color:var(--ink);font-size:11px;padding:4px 10px;border-radius:6px;font-weight:600;margin:0}
-.colWidthTrack{display:flex;overflow-x:auto;border:1px solid var(--line);border-radius:6px}
-.colSeg{position:relative;padding:6px 12px 6px 8px;border-right:1px solid var(--line);font-size:11px;font-weight:600;color:#334;background:#f7fafc;user-select:none}
-.colSeg:last-child{border-right:0}
-.colSegLabel{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.colResizeHandle{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:2}
-.colResizeHandle:hover,.colResizeHandle.active{background:rgba(232,117,26,.35)}
+.sheetResetRow{width:100%;display:flex;justify-content:center}
+.sheetResetBtn{background:#fff;border:1px solid var(--line);color:var(--muted);font-size:11px;padding:5px 12px;border-radius:20px;font-weight:600;margin:0}
+.sheetResetBtn:hover{color:var(--ink);border-color:#b9c4d0}
+.colResizeOverlay{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.colResizeHandle{position:absolute;top:0;bottom:0;width:9px;margin-left:-4.5px;cursor:col-resize;pointer-events:auto;z-index:6}
+.colResizeHandle:hover,.colResizeHandle.active{background:rgba(232,117,26,.4)}
 </style>
 </head>
 <body>
@@ -99,7 +95,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 
   <div id="previewCard" class="card hidden">
     <h3>PDF Preview</h3>
-    <div class="small">Preview updates automatically. Drag a column's edge in the bar above each sheet to resize it - the change applies to every page of that sheet and to the downloaded PDF, and stays put until you reset it or load a new file. Check the second and later pages of a worksheet to verify repeated headers.</div>
+    <div class="small">Preview updates automatically. Hover a column boundary directly on a page below to drag-resize it - text re-wraps live as you drag, the change applies to every page of that sheet and to the downloaded PDF, and stays put (per sheet) until you reset it or load a new file. Check the second and later pages of a worksheet to verify repeated headers.</div>
     <div id="previewInfo" class="small" style="margin:10px 0"></div>
     <div id="previewPages" class="previewPages"></div>
   </div>
@@ -188,34 +184,57 @@ function cssCell(cell,sheetName,row,col){const s=getExactStyle(cell,sheetName,ro
   ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#444";st.push(`border-${k}:1px solid ${bc}`)}});return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
-function buildColWidthBar(ws,d,visCols,x){
-  const bar=document.createElement("div");bar.className="colWidthBar";
-  const head=document.createElement("div");head.className="colWidthBarHead";
-  const label=document.createElement("span");label.innerHTML=`Column widths for <b>${esc(x.name)}</b> - drag an edge to resize`;
-  const resetBtn=document.createElement("button");resetBtn.type="button";resetBtn.className="colWidthReset";resetBtn.textContent="Reset to Excel widths";resetBtn.dataset.sheet=x.name;
-  head.appendChild(label);head.appendChild(resetBtn);bar.appendChild(head);
-  const track=document.createElement("div");track.className="colWidthTrack";
-  const headerRow=x.headers>0?d.r.s.r:null;
-  const BAR_TOTAL=Math.max(700,visCols.length*44);
+// Wraps a rendered table with an invisible full-height overlay carrying one
+// drag handle per column boundary, positioned by the exact same cumulative
+// colPx proportions as the table's own <col> widths - so a handle always
+// sits exactly on the column line it resizes, at exactly the page's own
+// width, on the page itself (not a separate control that can drift out of
+// sync with it).
+function wrapInteractive(table,ws,visCols){
+  const wrap=document.createElement("div");wrap.style.position="relative";
+  wrap.appendChild(table);
   const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
-  visCols.forEach(c=>{
-    const w=colPx(ws,c),segW=Math.max(40,Math.round(w/total*BAR_TOTAL));
-    const seg=document.createElement("div");seg.className="colSeg";seg.style.flex=`0 0 ${segW}px`;seg.dataset.sheet=x.name;seg.dataset.col=c;
-    let txt="";
-    if(headerRow!=null){const cell=ws[XLSX.utils.encode_cell({r:headerRow,c})];txt=String(cell?(cell.w??cell.v??""):"")}
-    const colLabel=document.createElement("span");colLabel.className="colSegLabel";colLabel.textContent=txt||XLSX.utils.encode_col(c);seg.title=txt||XLSX.utils.encode_col(c);seg.appendChild(colLabel);
-    const handle=document.createElement("div");handle.className="colResizeHandle";handle.dataset.sheet=x.name;handle.dataset.col=c;seg.appendChild(handle);
-    track.appendChild(seg);
+  const overlay=document.createElement("div");overlay.className="colResizeOverlay";
+  let cum=0;
+  for(let i=0;i<visCols.length-1;i++){
+    cum+=colPx(ws,visCols[i]);
+    const handle=document.createElement("div");handle.className="colResizeHandle";
+    handle.style.left=(cum/total*100)+"%";
+    handle.dataset.sheet=ws.__sheetName||"";handle.dataset.col=visCols[i];
+    overlay.appendChild(handle);
+  }
+  wrap.appendChild(overlay);
+  return wrap;
+}
+// Live, cheap visual feedback while dragging: patch every rendered <col>'s
+// width (and the resize-handle overlay's positions) for every page of this
+// sheet currently on screen. Table-layout:fixed reacts to a <col> width
+// change with a normal browser reflow, so cell text re-wraps and row
+// heights grow/shrink immediately, with no JS-side re-measurement needed.
+// The debounced schedulePreview() call alongside this is what corrects
+// pagination (which rows land on which page) once the drag settles.
+function updateColgroups(sheetName){
+  const ws=wb.Sheets[sheetName],d=dims(ws);
+  if(!d)return;
+  const visCols=visibleCols(ws,d);
+  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
+  document.querySelectorAll(`#previewPages table.excel-table[data-sheet="${CSS.escape(sheetName)}"]`).forEach(table=>{
+    const cols=table.querySelectorAll(":scope > colgroup > col");
+    visCols.forEach((c,i)=>{if(cols[i])cols[i].style.width=(colPx(ws,c)/total*100)+"%"});
   });
-  bar.appendChild(track);
-  return bar;
+  document.querySelectorAll(`#previewPages .colResizeOverlay`).forEach(overlay=>{
+    const handles=Array.from(overlay.children);
+    if(!handles.length||handles[0].dataset.sheet!==sheetName)return;
+    let cum=0;
+    handles.forEach(h=>{cum+=colPx(ws,+h.dataset.col);h.style.left=(cum/total*100)+"%"});
+  });
 }
 function makeTable(ws,d,start,end,font,scale,visCols){
   // Excel never prints hidden columns; rendering them anyway forces their
   // text into a near-zero-width cell, which wraps character-by-character
   // and inflates the whole row's height, pushing other rows off the page.
   visCols=visCols||visibleCols(ws,d);
-  const table=document.createElement("table");table.className="excel-table";table.style.fontSize=font+"pt";if(scale<1){table.style.zoom=scale}
+  const table=document.createElement("table");table.className="excel-table";table.dataset.sheet=ws.__sheetName||"";table.style.fontSize=font+"pt";if(scale<1){table.style.zoom=scale}
   let cg=document.createElement("colgroup"),total=0,arr=[];
   visCols.forEach(c=>{const w=colPx(ws,c);arr.push(w);total+=w});
   arr.forEach(w=>{const col=document.createElement("col");col.style.width=(w/Math.max(1,total)*100)+"%";cg.appendChild(col)});
@@ -257,52 +276,107 @@ function buildSheet(x,opt,startNo){const ws=wb.Sheets[x.name],d=dims(ws);if(!d)r
   const visCols=visibleCols(ws,d);
   const rowHeights=measureRowHeights(ws,d,x.font,scale,bodyWidthPt,visCols);
   const hpt=r=>rowHeights[r-d.r.s.r]??Math.max(14,rowPt(ws,r)*.75);
-  let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[];while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=hpt(r);const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers)pg.body.appendChild(makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale,visCols));pg.body.appendChild(makeTable(ws,d,a,cur-1,x.font,scale,visCols));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers});no++;first=false}return out}
+  let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[],pageIdxInSheet=0;while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=hpt(r);const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers){const headerTable=makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale,visCols);pg.body.appendChild(wrapInteractive(headerTable,ws,visCols))}const dataTable=makeTable(ws,d,a,cur-1,x.font,scale,visCols);pg.body.appendChild(wrapInteractive(dataTable,ws,visCols));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers,pageIdxInSheet});no++;first=false;pageIdxInSheet++}return out}
 function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
 function getOpt(){return{margin:Math.max(.75,+$("margin").value||.75)*PT,pref:+$("prefFont").value||10,min:+$("minFont").value||7,showFilename:$("showFilename").checked,home:$("home").checked,index:$("index").checked}}
 function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetNames.map((name,i)=>{const ws=wb.Sheets[name],d=dims(ws);if(!d)return{i,name,empty:true,paper:"A4",orientation:"portrait",font:opt.pref,headers:0};const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,headers:+$("headerRows").value||autoHeader(ws,d)}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td><select class="paper" data-i="${x.i}"><option ${x.paper==="A4"?"selected":""}>A4</option><option ${x.paper==="A3"?"selected":""}>A3</option></select></td><td><select class="orient" data-i="${x.i}"><option value="portrait" ${x.orientation==="portrait"?"selected":""}>Portrait</option><option value="landscape" ${x.orientation==="landscape"?"selected":""}>Landscape</option></select></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="number" value="${x.headers}" min="0" max="20" style="width:65px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{el.addEventListener("input",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()});el.addEventListener("change",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()})});$("analysisCard").classList.remove("hidden");$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Preview updates automatically.`)}
 let previewTimer=null;
 function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(renderPreview,120)}
-function renderPreview(){if(!wb||!results.length)return;const opt=getOpt(),host=$("previewPages");host.innerHTML="";const renderHost=$("renderHost");renderHost.innerHTML="";let no=opt.index?2:1,starts=[],all=[];for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const ws=wb.Sheets[x.name],d=dims(ws);if(d){const visCols=visibleCols(ws,d);host.appendChild(buildColWidthBar(ws,d,visCols,x))}const pages=buildSheet(x,opt,no);pages.forEach(p=>{host.appendChild(p.el.cloneNode(true));renderHost.appendChild(p.el)});all.push(...pages);no+=pages.length}if(opt.index){const ix=createIndexPage(starts,opt,all.length);host.prepend(ix);renderHost.prepend(ix.cloneNode(true))}$("previewCard").classList.remove("hidden");$("previewInfo").textContent=`${all.length+(opt.index?1:0)} PDF page(s) in preview. Pages marked “HEADER REPEAT” show repeated header rows.`;host.querySelectorAll(".pdf-page").forEach((p,i)=>{const r=p.querySelector(".sheet-name");if(r&&i>0){const tag=document.createElement("div");tag.className="previewTag";tag.textContent="PDF PAGE PREVIEW";p.appendChild(tag)}});renderHost.innerHTML=""}
+function renderPreview(){
+  if(!wb||!results.length)return;
+  const opt=getOpt(),host=$("previewPages");
+
+  // Preserve the viewport's scroll position across a rebuild (this fires on
+  // every column-resize settle) by anchoring to whichever page is nearest
+  // the top of the current view, then restoring that same page + relative
+  // offset once the new DOM is built. Without this, every re-render (e.g.
+  // mid-drag) yanks the view back to the very top / the Index page.
+  let anchor=null;
+  for(const child of Array.from(host.children)){
+    if(child.dataset&&child.dataset.sheet&&child.offsetTop<=host.scrollTop+4){
+      anchor={sheet:child.dataset.sheet,pageIdx:child.dataset.pageIdx,offset:host.scrollTop-child.offsetTop};
+    }
+  }
+
+  const renderHost=$("renderHost");renderHost.innerHTML="";
+  let no=opt.index?2:1,starts=[],all=[];
+  const displayFrag=document.createDocumentFragment();
+  for(const x of results){
+    if(x.empty)continue;
+    starts.push({name:x.name,no});
+    const resetRow=document.createElement("div");resetRow.className="sheetResetRow";resetRow.dataset.sheet=x.name;
+    const resetBtn=document.createElement("button");resetBtn.type="button";resetBtn.className="sheetResetBtn";resetBtn.textContent=`Reset "${x.name}" columns to Excel widths`;resetBtn.dataset.sheet=x.name;
+    resetRow.appendChild(resetBtn);
+    displayFrag.appendChild(resetRow);
+    const pages=buildSheet(x,opt,no);
+    pages.forEach(p=>{
+      p.el.dataset.sheet=x.name;p.el.dataset.pageIdx=String(p.pageIdxInSheet);
+      displayFrag.appendChild(p.el.cloneNode(true));
+      renderHost.appendChild(p.el);
+    });
+    all.push(...pages);
+    no+=pages.length;
+  }
+  host.innerHTML="";
+  if(opt.index){
+    const ix=createIndexPage(starts,opt,all.length);
+    host.appendChild(ix.cloneNode(true));
+    renderHost.appendChild(ix);
+  }
+  host.appendChild(displayFrag);
+
+  $("previewCard").classList.remove("hidden");
+  $("previewInfo").textContent=`${all.length+(opt.index?1:0)} PDF page(s) in preview. Pages marked “HEADER REPEAT” show repeated header rows.`;
+  host.querySelectorAll(".pdf-page").forEach((p,i)=>{const r=p.querySelector(".sheet-name");if(r&&i>0){const tag=document.createElement("div");tag.className="previewTag";tag.textContent="PDF PAGE PREVIEW";p.appendChild(tag)}});
+
+  if(anchor){
+    const match=Array.from(host.children).find(c=>c.dataset&&c.dataset.sheet===anchor.sheet&&c.dataset.pageIdx===anchor.pageIdx);
+    if(match)host.scrollTop=match.offsetTop+anchor.offset;
+  }
+}
 async function capture(pdf,el,sz){await new Promise(r=>requestAnimationFrame(r));const canvas=await html2canvas(el,{scale:2,useCORS:true,allowTaint:true,backgroundColor:"#ffffff",logging:false,width:Math.ceil(sz.w*1.3333),height:Math.ceil(sz.h*1.3333)});pdf.addImage(canvas.toDataURL("image/jpeg",.92),"JPEG",0,0,sz.w,sz.h,undefined,"FAST")}
 async function generatePdf(){if(!results.length){alert("Select an Excel workbook first.");return}const btn=$("generate");btn.disabled=true;$("progress").style.display="block";$("progress").value=0;try{const opt=getOpt();let no=opt.index?2:1,all=[],starts=[];for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const p=buildSheet(x,opt,no);all.push(...p);no+=p.length}const total=all.length+(opt.index?1:0);if(!total)throw new Error("No printable worksheets found.");let pdf=null,done=0;const renderHost=$("renderHost");if(opt.index){const ix=createIndexPage(starts,opt,all.length);pdf=new jsPDF({orientation:"portrait",unit:"pt",format:"a4",compress:true});renderHost.appendChild(ix);await capture(pdf,ix,{w:PAPERS.A4[0],h:PAPERS.A4[1]});renderHost.removeChild(ix);done++;$("progress").value=done/total*100}for(const p of all){if(!pdf)pdf=new jsPDF({orientation:p.x.orientation,unit:"pt",format:p.x.paper.toLowerCase(),compress:true});else pdf.addPage(p.x.paper.toLowerCase(),p.x.orientation);renderHost.appendChild(p.el);await capture(pdf,p.el,p.sz);renderHost.removeChild(p.el);done++;$("progress").value=done/total*100;status(`Generating page ${done} of ${total}...`)}if(opt.index){const indexPage=1;starts.forEach((s,i)=>{const rowY=155+i*27;pdf.setPage(indexPage);pdf.link(105,rowY,320,23,{pageNumber:s.no,top:0})});for(const p of all){pdf.setPage(p.no);if(opt.home)pdf.link(p.sz.w-80,5,75,25,{pageNumber:indexPage,top:0})}}let name=$("output").value.trim()||fileObj.name.replace(/\.[^.]+$/i,"")+".pdf";if(!/\.pdf$/i.test(name))name+=".pdf";pdf.save(name);status(`PDF generated successfully and download started.\n${total} page(s) created.`);$("progress").value=100}catch(e){console.error(e);status("Generation failed: "+e.message+"\n\nTechnical details:\n"+(e.stack||"No stack trace available"));alert("Generation failed: "+e.message)}finally{btn.disabled=false}}
 async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");COL_OVERRIDES=new Map();try{const buf=await f.arrayBuffer();await loadExactStyles(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
 // Column-resize drag: event delegation so it keeps working after renderPreview()
 // replaces #previewPages's children (and clones them into the live preview).
+// The handle sits directly on the rendered page (see wrapInteractive), so it
+// is always exactly page-width and exactly on the column line it resizes.
 let colDrag=null;
 $("previewPages").addEventListener("mousedown",e=>{
   const handle=e.target.closest(".colResizeHandle");
   if(!handle)return;
   e.preventDefault();
-  const seg=handle.closest(".colSeg");
   const sheetName=handle.dataset.sheet,col=+handle.dataset.col;
-  const ws=wb.Sheets[sheetName];
-  if(!ws)return;
-  colDrag={sheetName,col,startColPx:colPx(ws,col),startSegWidth:seg.getBoundingClientRect().width,startX:e.clientX,seg,pendingColPx:null};
+  const ws=wb.Sheets[sheetName],d=dims(ws);
+  if(!ws||!d)return;
+  const visCols=visibleCols(ws,d);
+  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
+  const wrap=handle.parentElement.parentElement;
+  const table=wrap.querySelector("table.excel-table");
+  // Measure the actual on-screen rendered width right now - this already
+  // accounts for any zoom/scale in effect, so the drag-to-width conversion
+  // below is correct regardless of how compressed this sheet's page is.
+  const renderedWidth=table.getBoundingClientRect().width;
+  colDrag={sheetName,col,startColPx:colPx(ws,col),startX:e.clientX,pxPerUnit:renderedWidth/total};
   handle.classList.add("active");
   document.body.style.cursor="col-resize";
 });
 window.addEventListener("mousemove",e=>{
   if(!colDrag)return;
   const deltaPx=e.clientX-colDrag.startX;
-  const pxPerUnit=colDrag.startSegWidth/Math.max(1,colDrag.startColPx);
-  const newColPx=Math.max(15,Math.round(colDrag.startColPx+deltaPx/pxPerUnit));
-  colDrag.pendingColPx=newColPx;
-  colDrag.seg.style.flex=`0 0 ${Math.max(40,colDrag.startSegWidth+deltaPx)}px`;
+  const newColPx=Math.max(15,Math.round(colDrag.startColPx+deltaPx/colDrag.pxPerUnit));
+  COL_OVERRIDES.set(colDrag.sheetName+"!"+colDrag.col,newColPx);
+  updateColgroups(colDrag.sheetName);
+  schedulePreview();
 });
 window.addEventListener("mouseup",()=>{
   if(!colDrag)return;
   document.body.style.cursor="";
   document.querySelectorAll(".colResizeHandle.active").forEach(h=>h.classList.remove("active"));
-  const {sheetName,col,pendingColPx}=colDrag;
   colDrag=null;
-  if(pendingColPx!=null){
-    COL_OVERRIDES.set(sheetName+"!"+col,pendingColPx);
-    schedulePreview();
-  }
 });
 $("previewPages").addEventListener("click",e=>{
-  const btn=e.target.closest(".colWidthReset");
+  const btn=e.target.closest(".sheetResetBtn");
   if(!btn)return;
   const sheetName=btn.dataset.sheet;
   for(const key of Array.from(COL_OVERRIDES.keys()))if(key.startsWith(sheetName+"!"))COL_OVERRIDES.delete(key);
