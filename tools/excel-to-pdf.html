@@ -355,19 +355,38 @@ function computeAdaptiveFit(ws,d,paper,orientation,margin,fontSpec){
   // repeatedly rescale only the columns not yet at their floor against the
   // budget left after setting floored ones aside, so the total never
   // exceeds the budget unless every column is already at MIN_COL_PX.
-  let remaining=compressIdx.slice(),budget=availableForCompress,scale=1,anyWrap=false;
-  for(let iter=0;iter<compressIdx.length&&remaining.length;iter++){
-    const natSum=remaining.reduce((a,i)=>a+widths[i],0)||1;
-    scale=Math.min(1,budget/natSum);
-    if(scale<1)anyWrap=true;
-    const floored=remaining.filter(i=>widths[i]*scale<MIN_COL_PX);
-    if(!floored.length)break;
-    budget-=floored.length*MIN_COL_PX;
-    remaining=remaining.filter(i=>!floored.includes(i));
+  // Mutates widths[i] for every i in idxList and returns the set of
+  // indices that actually ended up narrower than they started (so the
+  // caller knows which columns need wrapping).
+  function waterFill(idxList,budget){
+    let remaining=idxList.slice(),bud=budget,scale=1;const wrapped=new Set();
+    for(let iter=0;iter<idxList.length&&remaining.length;iter++){
+      const natSum=remaining.reduce((a,i)=>a+widths[i],0)||1;
+      scale=Math.min(1,bud/natSum);
+      if(scale<1)remaining.forEach(i=>wrapped.add(i));
+      const floored=remaining.filter(i=>widths[i]*scale<MIN_COL_PX);
+      if(!floored.length)break;
+      floored.forEach(i=>wrapped.add(i));
+      bud-=floored.length*MIN_COL_PX;
+      remaining=remaining.filter(i=>!floored.includes(i));
+    }
+    idxList.forEach(i=>{widths[i]=remaining.includes(i)?Math.max(MIN_COL_PX,widths[i]*scale):MIN_COL_PX});
+    return wrapped;
   }
-  compressIdx.forEach(i=>{widths[i]=remaining.includes(i)?Math.max(MIN_COL_PX,widths[i]*scale):MIN_COL_PX});
-  const wrapCols=widths.map((_,i)=>compressIdx.includes(i)&&anyWrap);
-  return{font,widths,wrap:anyWrap,wrapCols};
+  const wrapSet=waterFill(compressIdx,availableForCompress);
+  // A sheet with many columns can have enough compact/protected ones
+  // (short codes, dates, quantities...) that their combined width alone
+  // already exceeds the page, even though none of them individually
+  // looked like it needed compression — the pass above only ever
+  // compresses compressIdx, so availableForCompress being computed from
+  // an already-too-large reservedTotal still leaves the table wider than
+  // the page. As a last resort, compress every column, including
+  // previously-protected ones, so the table never silently overflows.
+  if(widths.reduce((a,b)=>a+b,0)>available+0.5){
+    waterFill(widths.map((_,i)=>i),available).forEach(i=>wrapSet.add(i));
+  }
+  const wrapCols=widths.map((_,i)=>wrapSet.has(i));
+  return{font,widths,wrap:wrapSet.size>0,wrapCols};
 }
 function rowPt(ws,r){const x=(ws["!rows"]||[])[r];if(x&&x.hpt)return x.hpt;return SHEET_ROW_DEFAULT.get(ws.__sheetName||"")||15}
 function pageSize(p,o){let a=[...PAPERS[p]];if(o==="landscape")a.reverse();return{w:a[0],h:a[1]}}
