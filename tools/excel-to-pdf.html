@@ -38,7 +38,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 #analysis th{background:#f2f5f8}
 #progress{width:100%;height:12px;display:none}
 .previewHost{position:absolute;left:-100000px;top:0;background:#fff}
-.previewControls{display:grid;grid-template-columns:2fr repeat(4,minmax(110px,1fr)) auto;gap:10px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0 14px}.previewControls .field{gap:4px}.previewControls label{font-size:12px;font-weight:700}.previewControls input,.previewControls select{padding:7px}.previewApply button{margin:0;width:100%;padding:8px}
+.previewControls{display:grid;grid-template-columns:2fr repeat(4,minmax(110px,1fr)) auto;gap:10px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0 14px}.previewControls .field{gap:4px}.previewControls label{font-size:12px;font-weight:700}.previewControls input,.previewControls select{padding:7px}.previewControls .radioGroup{display:flex;gap:12px;align-items:center;min-height:33px;padding:0 4px}.previewControls .radioGroup label{font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}.previewControls .radioGroup input{margin:0;padding:0}.previewApply button{margin:0;width:100%;padding:8px}
 .pdf-page{position:relative;background:#fff;overflow:hidden;page-break-after:always}
 .page-body{position:absolute;overflow:hidden}
 .home{position:absolute;right:10px;top:8px;background:#d96915;color:white;padding:4px 10px;border-radius:5px;font:700 9pt Arial;z-index:5}
@@ -91,12 +91,18 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 
   <div id="previewCard" class="card c4 hidden">
     <h3>PDF Preview</h3>
-    <div class="small">Preview updates automatically. Check the second and later pages of a worksheet to verify repeated headers.</div>
+    <div class="small">Changing the worksheet automatically rebuilds the preview with all columns auto-fitted to the selected page. Page size and orientation use radio buttons.</div>
     <div id="previewInfo" class="small" style="margin:10px 0"></div>
     <div class="previewControls">
       <div class="field"><label>Worksheet</label><select id="previewSheet"></select></div>
-      <div class="field"><label>Page size</label><select id="previewPaper"><option>A3</option><option>A4</option></select></div>
-      <div class="field"><label>Orientation</label><select id="previewOrient"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></div>
+      <div class="field radioField"><label>Page size</label><div class="radioGroup">
+        <label><input type="radio" name="previewPaper" value="A3"> A3</label>
+        <label><input type="radio" name="previewPaper" value="A4"> A4</label>
+      </div></div>
+      <div class="field radioField"><label>Orientation</label><div class="radioGroup">
+        <label><input type="radio" name="previewOrient" value="landscape"> Landscape</label>
+        <label><input type="radio" name="previewOrient" value="portrait"> Portrait</label>
+      </div></div>
       <div class="field"><label>Font size (pt)</label><input id="previewFont" type="number" min="5" max="20" step="1"></div>
       <div class="field"><label>Header rows</label><input id="previewHeaders" type="number" min="0" max="20" step="1"></div>
       <div class="field previewApply"><label>&nbsp;</label><button id="previewReset" class="secondary">Reset selected sheet</button></div>
@@ -170,6 +176,13 @@ function autoFitColWidths(ws,d){
   return widths;
 }
 function autoFitTotal(ws,d){return autoFitColWidths(ws,d).reduce((a,b)=>a+b,0)||1}
+function fitColumnsToPage(ws,d,paper,orientation,margin){
+  const widths=autoFitColWidths(ws,d);
+  const available=Math.max(1,printable(paper,orientation,margin));
+  const total=widths.reduce((a,b)=>a+b,0)||1;
+  const scale=Math.min(1,available/(total*0.75));
+  return {widths,total,scale};
+}
 function rowPt(ws,r){const x=(ws["!rows"]||[])[r];return(x&&x.hpt)||18}
 function pageSize(p,o){let a=[...PAPERS[p]];if(o==="landscape")a.reverse();return{w:a[0],h:a[1]}}
 function printable(p,o,m){return pageSize(p,o).w-2*m}
@@ -270,7 +283,7 @@ function buildImageOnlySheet(x,opt,startNo){
   pg.body.appendChild(holder);
   return[{el:pg.page,x,no:startNo,sheet:x.name,sz,imageOnly:true}];
 }
-function buildSheet(x,opt,startNo){const ws=wb.Sheets[x.name],d=dims(ws),images=SHEET_IMAGES.get(x.name)||[];if(!d)return buildImageOnlySheet(x,opt,startNo);const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7,usable=sz.h-2*opt.margin-32-titleH,baseScale=x.scale||1,scale=Math.min(baseScale,(sz.w-2*opt.margin)/(autoFitTotal(ws,d)*.75)*baseScale);let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[];while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=rowPt(ws,r)*.75;const a=cur;while(cur<=end){const h=rowPt(ws,cur)*.75;if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers)pg.body.appendChild(makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale));pg.body.appendChild(makeTable(ws,d,a,cur-1,x.font,scale));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers});no++;first=false}if(images.length){const ip=buildImageOnlySheet(x,opt,no);out.push(...ip);no+=ip.length}return out}
+function buildSheet(x,opt,startNo){const ws=wb.Sheets[x.name],d=dims(ws),images=SHEET_IMAGES.get(x.name)||[];if(!d)return buildImageOnlySheet(x,opt,startNo);const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7,usable=sz.h-2*opt.margin-32-titleH,baseScale=x.scale||1,fit=fitColumnsToPage(ws,d,x.paper,x.orientation,opt.margin),scale=Math.min(baseScale,fit.scale*baseScale);let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[];while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=rowPt(ws,r)*.75;const a=cur;while(cur<=end){const h=rowPt(ws,cur)*.75;if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers)pg.body.appendChild(makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale));pg.body.appendChild(makeTable(ws,d,a,cur-1,x.font,scale));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers});no++;first=false}if(images.length){const ip=buildImageOnlySheet(x,opt,no);out.push(...ip);no+=ip.length}return out}
 function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
 function getOpt(){return{margin:Math.max(.75,+$("margin").value||.75)*PT,pref:+$("prefFont").value||10,min:+$("minFont").value||7,showFilename:$("showFilename").checked,home:$("home").checked,index:$("index").checked}}
 function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetNames.map((name,i)=>{const ws=wb.Sheets[name],d=dims(ws),imgs=SHEET_IMAGES.get(name)||[],ps=EXCEL_PAGE_SETUP.get(name);if(!d&&!imgs.length)return{i,name,empty:true,paper:"A4",orientation:"portrait",font:opt.pref,headers:0,images:0,previewSet:!!ps};if(!d){
@@ -285,7 +298,9 @@ function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(re
 function syncPreviewControls(){
   const sel=$("previewSheet");if(!sel||!results.length)return;
   const x=results.find(r=>r.i===+sel.value);if(!x)return;
-  $("previewPaper").value=x.paper||"A3";$("previewOrient").value=x.orientation||"landscape";
+  const paper=x.paper||"A3", orient=x.orientation||"landscape";
+  document.querySelectorAll('input[name="previewPaper"]').forEach(r=>r.checked=r.value===paper);
+  document.querySelectorAll('input[name="previewOrient"]').forEach(r=>r.checked=r.value===orient);
   $("previewFont").value=x.font||10;$("previewHeaders").value=x.headers||0;
 }
 function updatePreviewSheetFromScroll(){
@@ -302,7 +317,10 @@ function updatePreviewSheetFromScroll(){
 }
 function applyPreviewControls(){
   const x=results.find(r=>r.i===+$("previewSheet").value);if(!x)return;
-  x.paper=$("previewPaper").value;x.orientation=$("previewOrient").value;
+  const paper=document.querySelector('input[name="previewPaper"]:checked');
+  const orient=document.querySelector('input[name="previewOrient"]:checked');
+  if(paper)x.paper=paper.value;
+  if(orient)x.orientation=orient.value;
   x.font=Math.max(5,Math.min(20,+$("previewFont").value||10));
   x.headers=Math.max(0,Math.min(20,+$("previewHeaders").value||0));schedulePreview();
 }
@@ -361,9 +379,9 @@ async function generatePdf(){
     alert("Generation failed: "+msg)}finally{btn.disabled=false}}
 async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");try{const buf=await f.arrayBuffer();await loadExactStyles(buf);await loadWorkbookLayoutAndImages(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
 $("drop").onclick=()=>$("file").click();$("file").onchange=e=>handleFile(e.target.files[0]);$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("drag")};$("drop").ondragleave=()=>$("drop").classList.remove("drag");$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("drag");handleFile(e.dataTransfer.files[0])};$("generate").onclick=generatePdf;
-$("previewSheet").onchange=syncPreviewControls;
-["previewPaper","previewOrient","previewFont","previewHeaders"].forEach(id=>$(id).addEventListener("input",applyPreviewControls));
-["previewPaper","previewOrient"].forEach(id=>$(id).addEventListener("change",applyPreviewControls));
+$("previewSheet").onchange=()=>{syncPreviewControls();schedulePreview();};
+document.querySelectorAll('input[name="previewPaper"],input[name="previewOrient"]').forEach(el=>el.addEventListener("change",applyPreviewControls));
+["previewFont","previewHeaders"].forEach(id=>$(id).addEventListener("input",applyPreviewControls));
 $("previewReset").onclick=resetPreviewSheet;
 $("previewPages").addEventListener("scroll",()=>{clearTimeout(window.__previewScrollTimer);window.__previewScrollTimer=setTimeout(updatePreviewSheetFromScroll,50)});
 window.addEventListener("resize",updatePreviewSheetFromScroll);
