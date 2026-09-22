@@ -43,7 +43,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .footer-left,.footer-right{position:absolute;bottom:9px;font:10pt Arial;color:#333}
 .footer-left{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.footer-right{right:0}
 .sheet-name{font-weight:700;margin-bottom:7px}
-.excel-table{border-collapse:collapse;table-layout:fixed;width:100%}
+.excel-table{border-collapse:collapse;table-layout:fixed;width:100%;font-family:Arial,Helvetica,sans-serif}
 .excel-table td,.excel-table th{border:1px solid #555;padding:3px 5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;background-clip:padding-box}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
@@ -184,7 +184,21 @@ function cssCell(cell,sheetName,row,col){const s=getExactStyle(cell,sheetName,ro
   const isSolid=String(fill.patternType||"").toLowerCase()==="solid";
   if(isSolid){const bg=excelColorToCss(fill.fgColor);if(bg)st.push(`background-color:${bg}!important`)}
   const fg=excelColorToCss(font.color);if(fg)st.push(`color:${fg}!important`);
-  if(font.bold)st.push("font-weight:bold");if(font.italic)st.push("font-style:italic");if(font.underline)st.push("text-decoration:underline");if(font.sz)st.push(`font-size:${font.sz}pt`);if(font.name)st.push(`font-family:"${String(font.name).replace(/"/g,"")}",Arial,sans-serif`);
+  if(font.bold)st.push("font-weight:bold");if(font.italic)st.push("font-style:italic");if(font.underline)st.push("text-decoration:underline");if(font.sz)st.push(`font-size:${font.sz}pt`);
+  // Deliberately NOT setting font-family from the workbook's own font name
+  // (e.g. Calibri, Excel's near-universal default). The live preview always
+  // rendered this correctly - the browser's real layout engine has no
+  // trouble with it - but the downloaded PDF consistently did not, on every
+  // sheet, even though both use the exact same browser and installed
+  // fonts. That points at html2canvas's own separate text-measurement pass
+  // disagreeing with the browser's actual layout for that specific font,
+  // even though it never visibly fails for the live DOM. Two targeted
+  // fixes for the resulting symptom (letterRendering, pre-wrap) did not
+  // resolve it, so instead of continuing to chase that mismatch, every
+  // cell now renders in the same safe, universal font (see .excel-table's
+  // own font-family) that both the browser and html2canvas measure
+  // identically - trading exact font fidelity to Excel for output that's
+  // actually readable.
   if(al.horizontal){const h=al.horizontal==="centerContinuous"?"center":al.horizontal;st.push(`text-align:${h}`)}if(al.vertical)st.push(`vertical-align:${al.vertical}`);
   // Always pre-wrap, never plain "normal" wrapping. html2canvas has a
   // long-documented bug where wrapped white-space:normal text can have the
