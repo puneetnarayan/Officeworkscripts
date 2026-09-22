@@ -174,6 +174,7 @@ const PAPERS={A4:[8.27*PT,11.69*PT],A3:[11.69*PT,16.54*PT]};
 let wb=null,fileObj=null,results=[];
 let SHEET_IMAGES=new Map();
 let EXCEL_PAGE_SETUP=new Map();
+let SHEET_ROW_DEFAULT=new Map();
 let RAW_STYLE={fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
 const $=id=>document.getElementById(id);
 function status(t){$("status").textContent=t;$("status").classList.add("show")}
@@ -272,6 +273,20 @@ const COMPACT_CHAR_LIMIT=12; // columns whose longest cell is at most this many 
 // under-estimated by ~25% versus what the browser actually renders,
 // forcing needless wraps.
 function colWidthAtFont(chars,font){return Math.max(MIN_COL_PX,chars*font*1.3333*CHAR_WIDTH_EM+CELL_OVERHEAD_PX)}
+// The column width a spreadsheet author actually set in Excel (SheetJS
+// exposes it pre-converted to a real pixel width as `.wpx`), used in
+// preference to our own character-count estimate so column PROPORTIONS
+// match what the file's owner already sees in Excel — e.g. a "Technical
+// Points" column set far wider than a serial-number column stays far
+// wider here too, instead of every column being resized purely off how
+// much text happens to be in it. Only used for columns Excel recorded an
+// explicit width for (customWidth) — a column Excel never had a reason
+// to size still falls back to the content-based estimate.
+function excelColWidthPx(ws,c){
+  const info=(ws["!cols"]||[])[c];
+  if(!info||info.customwidth!=="1"||!Number.isFinite(info.wpx))return null;
+  return Math.max(MIN_COL_PX,info.wpx);
+}
 // Computes column pixel widths and whether wrapping is needed for a sheet at
 // a given paper/orientation. The first column (usually a serial number) is
 // never compressed to make room for the others — it always gets its full
@@ -291,7 +306,7 @@ function computeAdaptiveFit(ws,d,paper,orientation,margin,fontSpec){
   // without it, the page was treated as ~25% narrower than it really
   // renders, forcing columns to compress/wrap more than necessary.
   const available=Math.max(1,printable(paper,orientation,margin)*1.3333);
-  function naturalWidths(font){return cols.map(chars=>colWidthAtFont(chars,font))}
+  function naturalWidths(font){return cols.map((chars,i)=>excelColWidthPx(ws,d.r.s.c+i)??colWidthAtFont(chars,font))}
   function tryFont(font){
     const w=naturalWidths(font);
     const total=w.reduce((a,b)=>a+b,0);
@@ -322,7 +337,12 @@ function computeAdaptiveFit(ws,d,paper,orientation,margin,fontSpec){
   // A column whose longest cell is at most COMPACT_CHAR_LIMIT characters
   // keeps its auto-fit width exactly as-is and is never wrapped, regardless
   // of how much page width that leaves for the rest — only columns with
-  // genuinely longer content absorb compression/wrapping.
+  // genuinely longer content absorb compression/wrapping. This still
+  // applies even to a column Excel set an explicit width for: uniformly
+  // shrinking every column (including short ones like a 2-3 word category)
+  // by the same proportional factor was tried and produced far less
+  // legible output than Excel's own rendering actually shows, so short
+  // columns stay protected regardless of width source.
   const isCompact=widths.map((w,i)=>i===0||cols[i]<=COMPACT_CHAR_LIMIT);
   let compressIdx=widths.map((_,i)=>i).filter(i=>!isCompact[i]);
   if(!compressIdx.length)compressIdx=widths.map((_,i)=>i).filter(i=>!(protect&&i===0));
@@ -349,14 +369,14 @@ function computeAdaptiveFit(ws,d,paper,orientation,margin,fontSpec){
   const wrapCols=widths.map((_,i)=>compressIdx.includes(i)&&anyWrap);
   return{font,widths,wrap:anyWrap,wrapCols};
 }
-function rowPt(ws,r){const x=(ws["!rows"]||[])[r];return(x&&x.hpt)||18}
+function rowPt(ws,r){const x=(ws["!rows"]||[])[r];if(x&&x.hpt)return x.hpt;return SHEET_ROW_DEFAULT.get(ws.__sheetName||"")||15}
 function pageSize(p,o){let a=[...PAPERS[p]];if(o==="landscape")a.reverse();return{w:a[0],h:a[1]}}
 function printable(p,o,m){return pageSize(p,o).w-2*m}
 function autoHeader(ws,d){let max=Math.min(d.r.e.r,d.r.s.r+5),best=1;for(let r=d.r.s.r;r<=max;r++){let filled=0,bold=0;for(let c=d.r.s.c;c<=d.r.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&cell.v!==undefined){filled++;const s=getExactStyle(cell,ws.__sheetName||"",r,c);if(s.font?.bold)bold++}}if(filled&&(bold/filled>.35||r===d.r.s.r))best=r-d.r.s.r+1}return best}
 function xmlTarget(base,target){let t=String(target||"").replace(/^\//,"");if(t.startsWith("xl/"))return t;if(base==="xl")return "xl/"+t;const parts=base.split("/");parts.pop();for(const q of t.split("/")){if(q==="..")parts.pop();else if(q&&q!==".")parts.push(q)}return parts.join("/")}
 function excelPagePaper(v){const n=String(v||"").toLowerCase();return n==="8"||n==="a3"?"A3":n==="9"||n==="a4"?"A4":null}
 async function loadWorkbookLayoutAndImages(buf){
-  SHEET_IMAGES=new Map();EXCEL_PAGE_SETUP=new Map();if(!window.JSZip)return;
+  SHEET_IMAGES=new Map();EXCEL_PAGE_SETUP=new Map();SHEET_ROW_DEFAULT=new Map();if(!window.JSZip)return;
   const z=await JSZip.loadAsync(buf),wf=z.file("xl/workbook.xml"),wr=z.file("xl/_rels/workbook.xml.rels");if(!wf||!wr)return;
   const wd=new DOMParser().parseFromString(await wf.async("text"),"application/xml");
   const rd=new DOMParser().parseFromString(await wr.async("text"),"application/xml"),rel=new Map();
@@ -370,6 +390,15 @@ async function loadWorkbookLayoutAndImages(buf){
     const br=doc.getElementsByTagNameNS("*","rowBreaks")[0]||doc.getElementsByTagNameNS("*","colBreaks")[0];
     const has=!!(ps||pm||pp||br||doc.getElementsByTagNameNS("*","printOptions")[0]);
     if(has){EXCEL_PAGE_SETUP.set(name,{paper:excelPagePaper(ps?.getAttribute("paperSize")),orientation:(ps?.getAttribute("orientation")||"").toLowerCase(),margins:pm?{top:+pm.getAttribute("top")||.75,bottom:+pm.getAttribute("bottom")||.75,left:+pm.getAttribute("left")||.75,right:+pm.getAttribute("right")||.75}:null,has:true})}
+    // Excel's own default row height for rows that don't set an explicit
+    // height — SheetJS doesn't expose <sheetFormatPr> anywhere on the
+    // worksheet object, so it has to be read from the raw XML directly.
+    // Falling back to a fixed guess here (as the code previously did)
+    // made every unset-height row taller than Excel's own default,
+    // packing noticeably fewer rows per page than Excel actually does.
+    const sfp=doc.getElementsByTagNameNS("*","sheetFormatPr")[0];
+    const defHt=+sfp?.getAttribute("defaultRowHeight");
+    if(Number.isFinite(defHt)&&defHt>0)SHEET_ROW_DEFAULT.set(name,defHt);
     const relPath=sheetPath.replace(/\/[^/]+$/,"/_rels/"+sheetPath.split("/").pop()+".rels"),rr=z.file(relPath);if(!rr)continue;
     const rdoc=new DOMParser().parseFromString(await rr.async("text"),"application/xml"),rmap=new Map();
     Array.from(rdoc.getElementsByTagNameNS("*","Relationship")).forEach(x=>rmap.set(x.getAttribute("Id"),x.getAttribute("Target")));
