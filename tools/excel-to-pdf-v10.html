@@ -161,13 +161,13 @@ function handleFile(f){
   $("output").value=f.name.replace(/\.[^.]+$/,"")+"_PDF.pdf";
   let rd=new FileReader();rd.onload=async e=>{
   try{
-    status("Loading workbook and extracting exact Excel styles...");
-    await loadExactStyles(e.target.result);
+    status("Loading workbook and extracting exact XLSX cell styles...");
+    await loadRawExcelStyles(e.target.result);
     wb=XLSX.read(new Uint8Array(e.target.result),{type:"array",cellStyles:true,cellNF:true});
     ACTIVE_WB=wb;
     wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n;});
-    status(`Workbook loaded. ${wb.SheetNames.length} worksheet(s) found. Exact cell styles loaded.`);
-  }catch(err){status("Load error: "+err.message)}
+    status(`Workbook loaded. ${wb.SheetNames.length} worksheet(s) found. Exact XLSX style map loaded.`);
+  }catch(err){console.error(err);status("Load error: "+err.message)}
 };rd.readAsArrayBuffer(f);
 }
 $("drop").onclick=()=>$("file").click();$("file").onchange=e=>handleFile(e.target.files[0]);
@@ -240,56 +240,45 @@ function mergedMap(ws){
 // Workbook styles are not always expanded into cell.s by SheetJS.
 // This resolver uses direct style objects first, then the raw style index.
 let ACTIVE_WB = null;
-let RAW_STYLE = {fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
+let RAW_STYLE = { fonts:[], fills:[], borders:[], cellXfs:[], cellStyleIndex:new Map(), themeColors:[] };
 
-function rawKids(n,name){return Array.from(n?n.children:[]).filter(x=>x.localName===name)}
-function rawColor(n){
-  if(!n)return null; const o={};
-  ["rgb","theme","indexed","tint"].forEach(k=>{if(n.hasAttribute(k)){const v=n.getAttribute(k);o[k]=k==="rgb"?v:Number(v)}});
+function xmlChildren(node, localName){ return Array.from(node ? node.children : []).filter(x=>x.localName===localName); }
+function xmlColor(el){
+  if(!el) return null; const o={};
+  ["rgb","theme","indexed","tint"].forEach(k=>{if(el.hasAttribute&&el.hasAttribute(k)){let v=el.getAttribute(k);o[k]=(k==="rgb"?v:Number(v));}});
   return Object.keys(o).length?o:null;
 }
-function rawTheme(xml){
-  const a=[];try{
+function parseThemeColors(xml){
+  const out=[]; try{
     const d=new DOMParser().parseFromString(xml,"application/xml");
-    const sc=Array.from(d.getElementsByTagNameNS("*","clrScheme"))[0];
-    if(!sc)return a;
-    for(const x of Array.from(sc.children)){const c=x.children[0];const h=c&&(c.getAttribute("lastClr")||c.getAttribute("val"));a.push(/^[0-9a-fA-F]{6}$/.test(h||"")?"#"+h:"")}
-  }catch(e){console.warn(e)}return a;
+    const scheme=Array.from(d.getElementsByTagNameNS("*","clrScheme"))[0];
+    if(!scheme)return out;
+    for(const n of Array.from(scheme.children)){const c=n.children[0];let h=c&&(c.getAttribute("lastClr")||c.getAttribute("val"));out.push(/^[0-9A-Fa-f]{6}$/.test(h||"")?"#"+h:"");}
+  }catch(e){} return out;
 }
-async function loadExactStyles(buf){
+async function loadRawExcelStyles(buf){
   RAW_STYLE={fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
   if(!window.JSZip)return;
-  const z=await JSZip.loadAsync(buf);
-  const tf=z.file("xl/theme/theme1.xml");if(tf)RAW_STYLE.themeColors=rawTheme(await tf.async("text"));
-  const sf=z.file("xl/styles.xml");
+  const zip=await JSZip.loadAsync(buf);
+  const tf=zip.file("xl/theme/theme1.xml"); if(tf) RAW_STYLE.themeColors=parseThemeColors(await tf.async("text"));
+  const sf=zip.file("xl/styles.xml");
   if(sf){
-    const d=new DOMParser().parseFromString(await sf.async("text"),"application/xml"),root=d.documentElement;
-    RAW_STYLE.fonts=rawKids(rawKids(root,"fonts")[0],"font").map(f=>({
-      bold:rawKids(f,"b").length>0,italic:rawKids(f,"i").length>0,underline:rawKids(f,"u").length>0,
-      name:(rawKids(f,"name")[0]||{}).getAttribute?.("val"),
-      sz:Number((rawKids(f,"sz")[0]||{}).getAttribute?.("val"))||undefined,
-      color:rawColor(rawKids(f,"color")[0])
-    }));
-    RAW_STYLE.fills=rawKids(rawKids(root,"fills")[0],"fill").map(f=>{const p=rawKids(f,"patternFill")[0];return {patternType:p&&p.getAttribute("patternType"),fgColor:rawColor(p&&rawKids(p,"fgColor")[0]),bgColor:rawColor(p&&rawKids(p,"bgColor")[0])}});
-    RAW_STYLE.borders=rawKids(rawKids(root,"borders")[0],"border").map(b=>{const o={};["left","right","top","bottom"].forEach(k=>{const q=rawKids(b,k)[0];if(q)o[k]={style:q.getAttribute("style")||"",color:rawColor(rawKids(q,"color")[0])}});return o});
-    RAW_STYLE.cellXfs=rawKids(rawKids(root,"cellXfs")[0],"xf").map(x=>{
-      const q=rawKids(x,"alignment")[0],a={};
-      if(q)["horizontal","vertical","wrapText"].forEach(k=>{if(q.hasAttribute(k))a[k]=k==="wrapText"?["1","true"].includes(q.getAttribute(k)):q.getAttribute(k)});
-      return {fontId:+(x.getAttribute("fontId")||0),fillId:+(x.getAttribute("fillId")||0),borderId:+(x.getAttribute("borderId")||0),alignment:a};
-    });
+    const d=new DOMParser().parseFromString(await sf.async("text"),"application/xml"), root=d.documentElement;
+    RAW_STYLE.fonts=xmlChildren(xmlChildren(root,"fonts")[0],"font").map(f=>({bold:xmlChildren(f,"b").length>0,italic:xmlChildren(f,"i").length>0,underline:xmlChildren(f,"u").length>0,name:(xmlChildren(f,"name")[0]||{}).getAttribute?.("val"),sz:Number((xmlChildren(f,"sz")[0]||{}).getAttribute?.("val"))||undefined,color:xmlColor(xmlChildren(f,"color")[0])}));
+    RAW_STYLE.fills=xmlChildren(xmlChildren(root,"fills")[0],"fill").map(f=>{const p=xmlChildren(f,"patternFill")[0];return {patternType:p&&p.getAttribute("patternType"),fgColor:xmlColor(p&&xmlChildren(p,"fgColor")[0]),bgColor:xmlColor(p&&xmlChildren(p,"bgColor")[0])};});
+    RAW_STYLE.borders=xmlChildren(xmlChildren(root,"borders")[0],"border").map(b=>{const o={};["left","right","top","bottom"].forEach(k=>{const x=xmlChildren(b,k)[0];if(x)o[k]={style:x.getAttribute("style")||"",color:xmlColor(xmlChildren(x,"color")[0])};});return o;});
+    RAW_STYLE.cellXfs=xmlChildren(xmlChildren(root,"cellXfs")[0],"xf").map(x=>{const a=xmlChildren(x,"alignment")[0],al={};if(a)["horizontal","vertical","wrapText"].forEach(k=>{if(a.hasAttribute(k))al[k]=k==="wrapText"?["1","true"].includes(a.getAttribute(k)):a.getAttribute(k)});return {fontId:+(x.getAttribute("fontId")||0),fillId:+(x.getAttribute("fillId")||0),borderId:+(x.getAttribute("borderId")||0),alignment:al};});
   }
-  const wf=z.file("xl/workbook.xml"),rf=z.file("xl/_rels/workbook.xml.rels");
+  const wf=zip.file("xl/workbook.xml"), rf=zip.file("xl/_rels/workbook.xml.rels");
   if(wf&&rf){
     const wd=new DOMParser().parseFromString(await wf.async("text"),"application/xml");
     const rd=new DOMParser().parseFromString(await rf.async("text"),"application/xml");
     const rel=new Map();Array.from(rd.getElementsByTagNameNS("*","Relationship")).forEach(x=>rel.set(x.getAttribute("Id"),x.getAttribute("Target")));
     for(const sh of Array.from(wd.getElementsByTagNameNS("*","sheet"))){
-      const name=sh.getAttribute("name");
-      const rid=sh.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id")||sh.getAttribute("r:id");
-      let t=rel.get(rid)||"";if(!t)continue;t=t.startsWith("/")?t.slice(1):"xl/"+t.replace(/^\.\//,"");
-      const f=z.file(t);if(!f)continue;
-      const sd=new DOMParser().parseFromString(await f.async("text"),"application/xml");
-      Array.from(sd.getElementsByTagNameNS("*","c")).forEach(c=>{const ref=c.getAttribute("r"),st=c.getAttribute("s");if(ref&&st!==null)RAW_STYLE.cellStyleIndex.set(name+"!"+ref,+st)});
+      const name=sh.getAttribute("name"), rid=sh.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id")||sh.getAttribute("r:id");
+      let target=rel.get(rid)||""; if(!target)continue; target=target.startsWith("/")?target.slice(1):"xl/"+target.replace(/^\.\//,"");
+      const f=zip.file(target);if(!f)continue; const sd=new DOMParser().parseFromString(await f.async("text"),"application/xml");
+      Array.from(sd.getElementsByTagNameNS("*","c")).forEach(c=>{const ref=c.getAttribute("r"), st=c.getAttribute("s");if(ref&&st!==null)RAW_STYLE.cellStyleIndex.set(name+"!"+ref,+st);});
     }
   }
 }
@@ -373,19 +362,15 @@ function resolveThemeColor(themeIndex,tint){
 
 function excelColorToCss(color){
   if(!color) return "";
-  if(Number.isFinite(color.theme) && RAW_STYLE.themeColors[color.theme]){
-    let c=RAW_STYLE.themeColors[color.theme];
-    if(typeof color.tint==="number"&&color.tint!==0){
-      const n=parseInt(c.slice(1),16), rgb=[(n>>16)&255,(n>>8)&255,n&255].map(v=>Math.max(0,Math.min(255,Math.round(color.tint<0?v*(1+color.tint):v+(255-v)*color.tint))));
-      c="#"+rgb.map(v=>v.toString(16).padStart(2,"0")).join("");
-    }
-    return c;
-  }
   const rgb=normalizeArgb(color.rgb);
   if(rgb) return rgb;
 
   if(Number.isFinite(color.theme)){
-    const themed=resolveThemeColor(color.theme,color.tint);
+    let themed=RAW_STYLE.themeColors[color.theme]||resolveThemeColor(color.theme,color.tint);
+    if(themed && typeof color.tint==="number" && RAW_STYLE.themeColors[color.theme]){
+      const n=parseInt(themed.slice(1),16), rgb=[(n>>16)&255,(n>>8)&255,n&255].map(v=>Math.max(0,Math.min(255,Math.round(color.tint<0?v*(1+color.tint):v+(255-v)*color.tint))));
+      themed="#"+rgb.map(v=>v.toString(16).padStart(2,"0")).join("");
+    }
     if(themed) return themed;
   }
 
@@ -402,17 +387,17 @@ function excelColorToCss(color){
   return "";
 }
 
-function getExactStyle(cell,sheetName,row,col){
+function getExactCellStyle(cell, sheetName, row, col){
   const ref=XLSX.utils.encode_cell({r:row,c:col});
   const idx=RAW_STYLE.cellStyleIndex.get(sheetName+"!"+ref);
-  if(Number.isFinite(idx)&&RAW_STYLE.cellXfs[idx]){
-    const x=RAW_STYLE.cellXfs[idx];
-    return {font:RAW_STYLE.fonts[x.fontId]||{},fill:RAW_STYLE.fills[x.fillId]||{},border:RAW_STYLE.borders[x.borderId]||{},alignment:x.alignment||{}};
+  if(Number.isFinite(idx) && RAW_STYLE.cellXfs[idx]){
+    const xf=RAW_STYLE.cellXfs[idx];
+    return {font:RAW_STYLE.fonts[xf.fontId]||{},fill:RAW_STYLE.fills[xf.fillId]||{},border:RAW_STYLE.borders[xf.borderId]||{},alignment:xf.alignment||{}};
   }
   return (cell&&cell.s&&typeof cell.s==="object")?cell.s:{};
 }
-function cssCell(cell,sheetName,row,col){
-  const s=getExactStyle(cell,sheetName,row,col);
+function cssCell(cell, sheetName, row, col){
+  const s=getExactCellStyle(cell, sheetName, row, col);
   const font=s.font||{};
   const fill=s.fill||{};
   const al=s.alignment||{};
@@ -464,7 +449,7 @@ function makeTable(ws,d,start,end,font,scale){
  let mm=mergedMap(ws);
  for(let r=start;r<=end;r++){let tr=document.createElement("tr");tr.style.height=Math.max(14,rowPt(ws,r)*.75)+"pt";
    for(let c=d.r.s.c;c<=d.r.e.c;c++){if(mm.covered.has(`${r}:${c}`))continue;let td=document.createElement("td"),cell=ws[XLSX.utils.encode_cell({r,c})];
-     td.innerHTML=esc(cell?(cell.w??cell.v??""):"");td.style.cssText=cssCell(cell,ws.__sheetName||"",r,c);let z=mm.m.get(`${r}:${c}`);if(z){td.rowSpan=z.rs;td.colSpan=z.cs}tr.appendChild(td)}
+     td.innerHTML=esc(cell?(cell.w??cell.v??""):"");td.style.cssText=cssCell(cell, ws.__sheetName || "", r, c);let z=mm.m.get(`${r}:${c}`);if(z){td.rowSpan=z.rs;td.colSpan=z.cs}tr.appendChild(td)}
    table.appendChild(tr)
  }return table;
 }
