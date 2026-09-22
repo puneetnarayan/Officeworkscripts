@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Excel Version Comparator - Highlighted</title>
+
+<!-- SheetJS reads the input Excel files -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- ExcelJS writes the output workbook with real Excel cell fills, fonts and borders -->
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f4f7f8;color:#263238}
+.app{width:94%;max-width:1180px;margin:28px auto;background:white;border:2px solid #455a64;border-radius:18px;padding:28px;box-shadow:0 8px 28px rgba(0,0,0,.08)}
+h1{text-align:center;margin:0;color:#37474f}
+.subtitle{text-align:center;color:#607d8b;margin:8px 0 26px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{min-height:185px;border:2px dashed #90a4ae;border-radius:14px;padding:18px;text-align:center}
+.v1{background:#fff8ef}.v2{background:#f1fbf6}.v3{background:#f2f7ff}
+.title{font-size:19px;font-weight:bold;margin-bottom:12px}.optional{font-size:12px;color:#78909c;font-weight:normal}
+.drop{border:1px solid #b0bec5;border-radius:10px;padding:20px 10px;background:rgba(255,255,255,.8);cursor:pointer}
+.drop.drag{background:#e8f4f8;border-color:#546e7a}.drop input{display:none}
+.name{margin-top:12px;min-height:34px;font-size:13px;color:#455a64;word-break:break-word}
+.count{text-align:center;margin:14px 0;font-weight:bold;color:#546e7a}
+.settings{margin-top:20px;padding:18px;background:#f8fafb;border:1px solid #cfd8dc;border-radius:12px}
+.line{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+select{padding:9px 12px;border:1px solid #90a4ae;border-radius:8px;background:white}
+button{padding:12px 20px;border:1px solid #455a64;border-radius:9px;font-weight:bold;cursor:pointer;margin:5px}
+#compare{background:#d8f0e3}#folder{background:#e4eef7}#reset{background:#f7dddd}button:disabled{opacity:.5;cursor:not-allowed}
+.center{text-align:center;margin-top:20px}
+.legend{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}
+.legend span{font-size:12px;padding:7px 10px;border:1px solid #cfd8dc;border-radius:7px}
+.y{background:#fff1dc}.b{background:#e1f2ff}.g{background:#e5f5dd}.r{background:#f8e2e2}
+.progress{display:none;margin-top:22px}.barbg{height:26px;background:#eceff1;border:1px solid #b0bec5;border-radius:15px;overflow:hidden}.bar{height:100%;width:0;background:#b9ddcf;text-align:center;line-height:25px;font-size:13px;font-weight:bold;transition:.2s}
+.status{display:none;margin-top:15px;padding:13px;border-radius:9px;white-space:pre-line}.success{background:#e6f6ed;color:#245c3a}.error{background:#fdeaea;color:#8b2020}
+.info{margin-top:20px;padding:16px;background:#fffdf2;border:1px solid #ddd3a0;border-radius:10px;line-height:1.55;font-size:14px}
+.foldername{font-size:13px;color:#607d8b}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<h1>Excel Version Comparator</h1>
+<div class="subtitle">2 or 3 versions • ALL worksheets • all rows shown by default • changes highlighted in yellow</div>
+
+<div class="grid">
+  <div class="card v1"><div class="title">Version 1 — Oldest</div><div class="drop" id="d1"><input type="file" id="f1" accept=".xlsx,.xls">Click to select<br><small>or drag & drop</small></div><div class="name" id="n1">No file selected</div></div>
+  <div class="card v2"><div class="title">Version 2</div><div class="drop" id="d2"><input type="file" id="f2" accept=".xlsx,.xls">Click to select<br><small>or drag & drop</small></div><div class="name" id="n2">No file selected</div></div>
+  <div class="card v3"><div class="title">Version 3 <span class="optional">(Optional)</span></div><div class="drop" id="d3"><input type="file" id="f3" accept=".xlsx,.xls">Click to select<br><small>or drag & drop</small></div><div class="name" id="n3">No file selected</div></div>
+</div>
+
+<div class="count" id="count">0 files selected — select Version 1 and Version 2</div>
+
+<div class="settings">
+  <div class="line">
+    <b>Output:</b>
+    <select id="mode">
+      <option value="all" selected>All Rows + Highlight Changes</option>
+      <option value="changes">Changed + Added / Removed Rows Only</option>
+    </select>
+    <button id="folder">Select Desktop / Output Folder</button>
+    <span class="foldername" id="foldername">No folder selected — browser download will be used</span>
+    <label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
+      <input type="checkbox" id="wrapText" checked>
+      Word wrap cell contents
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:14px">
+      Worksheet zoom:
+      <input type="number" id="zoomLevel" min="10" max="400" value="55" style="width:70px;padding:7px;border:1px solid #90a4ae;border-radius:7px">
+      %
+    </label>
+  </div>
+  <div class="legend">
+    <span class="y">V1 → V2 changed row / cell</span>
+    <span class="b">V2 → V3 changed row / cell</span>
+    <span class="g">Added row</span>
+    <span class="r">Removed row</span>
+  </div>
+</div>
+
+<div class="center">
+  <button id="compare">Compare Excel Files</button>
+  <button id="reset">Reset</button>
+</div>
+
+<div class="progress" id="progress">
+  <b id="progressText">Preparing...</b>
+  <div class="barbg"><div class="bar" id="bar">0%</div></div>
+</div>
+<div class="status" id="status"></div>
+
+<div class="info">
+<b>Important:</b> This version uses <b>ExcelJS for the output workbook</b>, specifically so that background fills, bold fonts and borders are written as real Excel formatting. The whole affected row receives a light pastel shade, while the exact cell containing a difference is highlighted light yellow. For text changes, the entire cell containing a change is highlighted light yellow. Within text cells, only the changed portion is bold and red; unchanged text remains normal. Use the Word wrap option before comparison if cell contents should wrap in the output Excel file. All output cells receive borders. Row Changes and Change Details also show the exact changed portion of text in red. Word wrap is enabled by default, and the worksheet zoom can be adjusted before comparison (default: 55%).
+</div>
+</div>
+
+<script>
+let files=[null,null,null];
+let outputDir=null;
+
+const COLORS={
+  V12_ROW:"FFF8EB",
+  V12_CELL:"FFFFD99B",
+  V23_ROW:"FFEEF8FF",
+  V23_CELL:"FFA9DCF8",
+  ADDED:"FFE5F5DD",
+  ADDED_CELL:"FFCDEFC3",
+  REMOVED:"FFF8E2E2",
+  REMOVED_CELL:"FFF5BFC0",
+  HEADER:"FFDDEBF7",
+  BORDER:"FF78909C"
+};
+
+function setupFile(i){
+  const input=document.getElementById("f"+i);
+  const zone=document.getElementById("d"+i);
+  input.addEventListener("change",()=>{if(input.files[0]) setFile(i,input.files[0]);});
+  zone.addEventListener("click",()=>input.click());
+  zone.addEventListener("dragover",e=>{e.preventDefault();zone.classList.add("drag");});
+  zone.addEventListener("dragleave",()=>zone.classList.remove("drag"));
+  zone.addEventListener("drop",e=>{
+    e.preventDefault();zone.classList.remove("drag");
+    if(e.dataTransfer.files[0]) setFile(i,e.dataTransfer.files[0]);
+  });
+}
+[1,2,3].forEach(setupFile);
+
+function setFile(i,file){
+  if(!/\.(xlsx|xls)$/i.test(file.name)){alert("Please select an Excel file (.xlsx or .xls).");return;}
+  files[i-1]=file;
+  document.getElementById("n"+i).textContent=file.name;
+  updateCount();
+}
+function updateCount(){
+  const n=files.filter(Boolean).length;
+  document.getElementById("count").textContent=n>=2?n+" files selected — ready to compare":n+" file selected — select at least "+(2-n)+" more";
+}
+function getZoomLevel(){
+  const input=document.getElementById("zoomLevel");
+  let zoom=parseInt(input?.value,10);
+  if(!Number.isFinite(zoom)) zoom=55;
+  zoom=Math.max(10,Math.min(400,zoom));
+  if(input) input.value=zoom;
+  return zoom;
+}
+
+function progress(p,text){
+  document.getElementById("progress").style.display="block";
+  document.getElementById("bar").style.width=p+"%";
+  document.getElementById("bar").textContent=Math.round(p)+"%";
+  document.getElementById("progressText").textContent=text;
+}
+function showStatus(text,type="success"){
+  const s=document.getElementById("status");
+  s.style.display="block";s.className="status "+type;s.textContent=text;
+}
+async function readWorkbook(file){
+  const buffer=await file.arrayBuffer();
+  return XLSX.read(buffer,{type:"array",cellDates:true});
+}
+function dims(ws){
+  if(!ws||!ws["!ref"]) return {rows:0,cols:0};
+  const r=XLSX.utils.decode_range(ws["!ref"]);
+  return {rows:r.e.r+1,cols:r.e.c+1};
+}
+function value(ws,row,col){
+  if(!ws) return "";
+  const cell=ws[XLSX.utils.encode_cell({r:row,c:col})];
+  return cell&&cell.v!==undefined&&cell.v!==null?String(cell.v):"";
+}
+function rowExists(ws,row,cols){
+  for(let c=0;c<cols;c++) if(value(ws,row,c)!=="") return true;
+  return false;
+}
+function rowDifferent(a,b,row,cols){
+  for(let c=0;c<cols;c++) if(value(a,row,c)!==value(b,row,c)) return true;
+  return false;
+}
+function rowSnapshot(ws,row,cols){
+  return Array.from({length:cols},(_,c)=>value(ws,row,c)).join(" | ");
+}
+function fill(cell,color){
+  cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:color}};
+}
+function thinBorder(){
+  return {
+    top:{style:"thin",color:{argb:"FFB0BEC5"}},
+    bottom:{style:"thin",color:{argb:"FFB0BEC5"}},
+    left:{style:"thin",color:{argb:"FFB0BEC5"}},
+    right:{style:"thin",color:{argb:"FFB0BEC5"}}
+  };
+}
+function strongBorder(){
+  return {
+    top:{style:"medium",color:{argb:COLORS.BORDER}},
+    bottom:{style:"medium",color:{argb:COLORS.BORDER}},
+    left:{style:"medium",color:{argb:COLORS.BORDER}},
+    right:{style:"medium",color:{argb:COLORS.BORDER}}
+  };
+}
+function styleCell(cell,color,bold=false,strong=false){
+  fill(cell,color);
+  cell.font={name:"Calibri",size:11,bold:bold};
+  cell.border=strong?strongBorder():thinBorder();
+  cell.alignment={vertical:"middle",wrapText:!!document.getElementById("wrapText")?.checked};
+}
+
+function commonParts(oldText,newText){
+  const a=String(oldText??""), b=String(newText??"");
+  let start=0;
+  while(start<a.length && start<b.length && a[start]===b[start]) start++;
+  let endA=a.length-1,endB=b.length-1;
+  while(endA>=start && endB>=start && a[endA]===b[endB]){endA--;endB--;}
+  return {
+    prefix:a.slice(0,start),
+    oldChanged:a.slice(start,endA+1),
+    newChanged:b.slice(start,endB+1),
+    suffix:a.slice(endA+1)
+  };
+}
+function richChangedText(cell,oldText,newText,darkColor){
+  // Rich text is used only for strings. Numbers and dates remain normal.
+  if(typeof oldText!=="string" || typeof newText!=="string"){
+    cell.value=newText;
+    return;
+  }
+  const p=commonParts(oldText,newText);
+  const normal={name:"Calibri",size:11,color:{argb:"FF000000"}};
+  const changed={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"}};
+  const parts=[];
+  if(p.prefix)parts.push({text:p.prefix,font:normal});
+  if(p.newChanged)parts.push({text:p.newChanged,font:changed});
+  if(p.suffix)parts.push({text:p.suffix,font:normal});
+  if(!parts.length)parts.push({text:newText,font:normal});
+  cell.value={richText:parts};
+}
+function richRemovedText(cell,oldText,darkColor){
+  const normal={name:"Calibri",size:11};
+  const changed={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"},strike:false};
+  cell.value={richText:[{text:String(oldText??""),font:changed}]};
+}
+
+function writeComparisonSheet(wb,name,a,b,c,mode,summary,rowChanges,details){
+  const has3=!!c;
+  const da=dims(a),db=dims(b),dc=has3?dims(c):{rows:0,cols:0};
+  const rows=Math.max(da.rows,db.rows,dc.rows);
+  const cols=Math.max(da.cols,db.cols,dc.cols);
+  const gap=2,s1=1,s2=cols+gap+1,s3=has3?(cols+gap)*2+1:null;
+  const ws=wb.addWorksheet(name.substring(0,31));
+  let out=1;
+
+  function section(start,label,color){
+    for(let col=start;col<start+cols;col++){
+      const cell=ws.getCell(out,col);
+      cell.value=col===start?label:"";
+      styleCell(cell,color,true,false);
+    }
+  }
+  section(s1,"VERSION 1",COLORS.V12_ROW);
+  section(s2,"VERSION 2",COLORS.V23_ROW);
+  if(has3) section(s3,"VERSION 3",COLORS.ADDED);
+  out++;
+
+  for(let col=0;col<cols;col++){
+    const h=XLSX.utils.encode_col(col);
+    styleCell(ws.getCell(out,s1+col),COLORS.V12_ROW,true);ws.getCell(out,s1+col).value=h;
+    styleCell(ws.getCell(out,s2+col),COLORS.V23_ROW,true);ws.getCell(out,s2+col).value=h;
+    if(has3){styleCell(ws.getCell(out,s3+col),COLORS.ADDED,true);ws.getCell(out,s3+col).value=h;}
+  }
+  out++;
+
+  for(let r=0;r<rows;r++){
+    const e1=rowExists(a,r,cols),e2=rowExists(b,r,cols),e3=has3&&rowExists(c,r,cols);
+    const add12=!e1&&e2,rem12=e1&&!e2,ch12=e1&&e2&&rowDifferent(a,b,r,cols);
+    const add23=has3&&!e2&&e3,rem23=has3&&e2&&!e3,ch23=has3&&e2&&e3&&rowDifferent(b,c,r,cols);
+    const affected=add12||rem12||ch12||add23||rem23||ch23;
+    if(mode==="changes"&&!affected) continue;
+
+    const addSummary=(transition,status,oldRow,newRow)=>{
+      summary.push({sheet:name,row:r+1,transition,status});
+      rowChanges.push({sheet:name,row:r+1,transition,status,oldRow,newRow});
+    };
+    if(add12)addSummary("V1 → V2","Added",rowSnapshot(a,r,cols),rowSnapshot(b,r,cols));
+    else if(rem12)addSummary("V1 → V2","Removed",rowSnapshot(a,r,cols),rowSnapshot(b,r,cols));
+    else if(ch12)addSummary("V1 → V2","Changed",rowSnapshot(a,r,cols),rowSnapshot(b,r,cols));
+    if(has3){
+      if(add23)addSummary("V2 → V3","Added",rowSnapshot(b,r,cols),rowSnapshot(c,r,cols));
+      else if(rem23)addSummary("V2 → V3","Removed",rowSnapshot(b,r,cols),rowSnapshot(c,r,cols));
+      else if(ch23)addSummary("V2 → V3","Changed",rowSnapshot(b,r,cols),rowSnapshot(c,r,cols));
+    }
+
+    for(let col=0;col<cols;col++){
+      const x=value(a,r,col),y=value(b,r,col),z=has3?value(c,r,col):"";
+      if(x!==y) details.push({sheet:name,row:r+1,column:XLSX.utils.encode_col(col),v1:x,v2:y,v3:z,change:add12?"Added":rem12?"Removed":"V1 → V2"});
+      if(has3&&y!==z) details.push({sheet:name,row:r+1,column:XLSX.utils.encode_col(col),v1:x,v2:y,v3:z,change:add23?"Added":rem23?"Removed":"V2 → V3"});
+    }
+
+    for(let col=0;col<cols;col++){
+      const x=value(a,r,col),y=value(b,r,col),z=has3?value(c,r,col):"";
+      const c1=ws.getCell(out,s1+col),c2=ws.getCell(out,s2+col),c3=has3?ws.getCell(out,s3+col):null;
+      c1.value=x;c2.value=y;if(c3)c3.value=z;
+
+      // Base row highlighting
+      let color1="FFFFFFFF",color2="FFFFFFFF",color3="FFFFFFFF";
+      if(add12){color1=color2=COLORS.ADDED;}
+      else if(rem12){color1=color2=COLORS.REMOVED;}
+      else if(ch12){color1=color2=COLORS.V12_ROW;}
+      if(has3){
+        if(add23){color2=color3=COLORS.ADDED;}
+        else if(rem23){color2=color3=COLORS.REMOVED;}
+        else if(ch23){color3=COLORS.V23_ROW;if(!ch12)color2=COLORS.V23_ROW;}
+      }
+      styleCell(c1,color1,false,false);styleCell(c2,color2,false,false);if(c3)styleCell(c3,color3,false,false);
+
+      // Exact changed part only:
+      // whole cell keeps a subtle row colour, while only the changed text
+      // becomes bold and slightly darker.
+      if(add12){
+        styleCell(c1,COLORS.ADDED,false,true);
+        styleCell(c2,COLORS.ADDED,false,true);
+        if(x) richRemovedText(c1,x,"FF7A4E00");
+        if(y) richChangedText(c2,"",y,"FF2E6B3A");
+      }
+      else if(rem12){
+        styleCell(c1,COLORS.REMOVED,false,true);
+        styleCell(c2,COLORS.REMOVED,false,true);
+        if(x) richRemovedText(c1,x,"FF9A3030");
+      }
+      else if(x!==y){
+        // Version 1 shows the changed-out portion; Version 2 shows the new portion.
+        // Exact changed cells are highlighted yellow.
+        styleCell(c1,"FFFFF59D",false,true);
+        styleCell(c2,"FFFFF59D",false,true);
+        if(typeof x==="string" && typeof y==="string"){
+          const p=commonParts(x,y);
+          const normal={name:"Calibri",size:11,color:{argb:"FF000000"}};
+          const oldChanged={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"}};
+          const newChanged={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"}};
+          const oldParts=[];
+          if(p.prefix)oldParts.push({text:p.prefix,font:normal});
+          if(p.oldChanged)oldParts.push({text:p.oldChanged,font:oldChanged});
+          if(p.suffix)oldParts.push({text:p.suffix,font:normal});
+          c1.value={richText:oldParts.length?oldParts:[{text:x,font:normal}]};
+          richChangedText(c2,x,y,"FF8A5A00");
+        }else{
+          c1.font={name:"Calibri",size:11,bold:true,color:{argb:"FF9A6500"}}; fill(c1,"FFFFFF00");
+          c2.font={name:"Calibri",size:11,bold:true,color:{argb:"FF8A5A00"}}; fill(c2,"FFFFFF00");
+        }
+      }
+
+      if(has3){
+        if(add23){
+          styleCell(c2,COLORS.ADDED,false,true);
+          styleCell(c3,COLORS.ADDED,false,true);
+          if(y) richRemovedText(c2,y,"FF7A4E00");
+          if(z) richChangedText(c3,"",z,"FF2E6B3A");
+        }
+        else if(rem23){
+          styleCell(c2,COLORS.REMOVED,false,true);
+          styleCell(c3,COLORS.REMOVED,false,true);
+          if(y) richRemovedText(c2,y,"FF9A3030");
+        }
+        else if(y!==z){
+          // Exact changed cells are highlighted yellow.
+          styleCell(c2,"FFFFF59D",false,true);
+          styleCell(c3,"FFFFF59D",false,true);
+          if(typeof y==="string" && typeof z==="string"){
+            const p=commonParts(y,z);
+            const normal={name:"Calibri",size:11,color:{argb:"FF000000"}};
+            const oldChanged={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"}};
+            const newChanged={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"}};
+            const oldParts=[];
+            if(p.prefix)oldParts.push({text:p.prefix,font:normal});
+            if(p.oldChanged)oldParts.push({text:p.oldChanged,font:oldChanged});
+            if(p.suffix)oldParts.push({text:p.suffix,font:normal});
+            c2.value={richText:oldParts.length?oldParts:[{text:y,font:normal}]};
+            richChangedText(c3,y,z,"FF1D607A");
+          }else{
+            c2.font={name:"Calibri",size:11,bold:true,color:{argb:"FF24627A"}}; fill(c2,"FFFFFF00");
+            c3.font={name:"Calibri",size:11,bold:true,color:{argb:"FF1D607A"}}; fill(c3,"FFFFFF00");
+          }
+        }
+      }
+    }
+    out++;
+  }
+  for(let col=1;col<=ws.columnCount;col++) ws.getColumn(col).width=col===s2-1||col===(s3?s3-1:-1)?3:18;
+  ws.views=[{state:"frozen",ySplit:2,zoomScale:getZoomLevel()}];
+}
+function reportSheet(wb,name,headers,rows,widths,colorFn){
+  const ws=wb.addWorksheet(name);
+  headers.forEach((h,i)=>{const cell=ws.getCell(1,i+1);cell.value=h;styleCell(cell,COLORS.HEADER,true,false);});
+  rows.forEach((row,r)=>{
+    const color=colorFn?colorFn(row):"FFFFFFFF";
+    row.values.forEach((v,c)=>{const cell=ws.getCell(r+2,c+1);cell.value=v;styleCell(cell,color,false,false);});
+  });
+  widths.forEach((w,i)=>ws.getColumn(i+1).width=w);
+  ws.views=[{state:"frozen",ySplit:1,zoomScale:getZoomLevel()}];
+}
+function statusColor(s){return s==="Added"?COLORS.ADDED:s==="Removed"?COLORS.REMOVED:COLORS.V12_ROW;}
+
+// Apply the same red changed-text indication inside report worksheets.
+// Only the changed portion of a string is coloured red; the rest stays unchanged.
+function makeRichParts(oldText,newText,useOldSide){
+  const a=String(oldText??""), b=String(newText??"");
+  if(a===b) return null;
+  const p=commonParts(a,b);
+  const normal={name:"Calibri",size:11,color:{argb:"FF000000"}};
+  const changed={name:"Calibri",size:11,bold:true,color:{argb:"FFFF0000"}};
+  const changedText=useOldSide?p.oldChanged:p.newChanged;
+  const parts=[];
+  if(p.prefix) parts.push({text:p.prefix,font:normal});
+  if(changedText) parts.push({text:changedText,font:changed});
+  if(p.suffix) parts.push({text:p.suffix,font:normal});
+  return parts.length?parts:[{text:useOldSide?a:b,font:normal}];
+}
+
+function applyRichText(cell,parts){
+  if(parts) cell.value={richText:parts};
+}
+
+// Apply report highlighting without writing to the same ExcelJS cell more than once.
+// This avoids ExcelJS state/cache errors when a Version 2 cell participates in both comparisons.
+function applyReportTextHighlights(output){
+  const rowChangesSheet=output.getWorksheet("Row Changes");
+  if(rowChangesSheet){
+    for(let r=2;r<=rowChangesSheet.rowCount;r++){
+      const oldCell=rowChangesSheet.getCell(r,5);
+      const newCell=rowChangesSheet.getCell(r,6);
+      const oldText=String(oldCell.value??"");
+      const newText=String(newCell.value??"");
+      if(oldText!==newText){
+        applyRichText(oldCell,makeRichParts(oldText,newText,true));
+        applyRichText(newCell,makeRichParts(oldText,newText,false));
+      }
+    }
+  }
+
+  const detailsSheet=output.getWorksheet("Change Details");
+  if(detailsSheet){
+    for(let r=2;r<=detailsSheet.rowCount;r++){
+      const v1=detailsSheet.getCell(r,4);
+      const v2=detailsSheet.getCell(r,5);
+      const v3=detailsSheet.getCell(r,6);
+
+      const a=String(v1.value??"");
+      const b=String(v2.value??"");
+      const c=String(v3.value??"");
+
+      // Each Change Details row represents one transition. Use the Change column
+      // to highlight only that transition, so no cell is overwritten twice.
+      const change=String(detailsSheet.getCell(r,7).value??"");
+
+      if(change==="V1 → V2"){
+        applyRichText(v1,makeRichParts(a,b,true));
+        applyRichText(v2,makeRichParts(a,b,false));
+      }else if(change==="V2 → V3"){
+        applyRichText(v2,makeRichParts(b,c,true));
+        applyRichText(v3,makeRichParts(b,c,false));
+      }
+    }
+  }
+}
+document.getElementById("folder").addEventListener("click",async()=>{
+  if(!window.showDirectoryPicker){alert("Use Chrome or Edge for direct folder saving. Otherwise the file will download normally.");return;}
+  try{
+    outputDir=await window.showDirectoryPicker({mode:"readwrite"});
+    document.getElementById("foldername").textContent="Selected folder: "+outputDir.name;
+  }catch(e){}
+});
+
+async function saveWorkbook(workbook){
+  const buffer=await workbook.xlsx.writeBuffer();
+  const blob=new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const filename="Excel_Comparison_Highlighted.xlsx";
+  if(outputDir){
+    const handle=await outputDir.getFileHandle(filename,{create:true});
+    const writable=await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  }
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;link.download=filename;
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+  return filename;
+}
+
+document.getElementById("compare").addEventListener("click",async()=>{
+  if(!files[0]||!files[1]){alert("Version 1 and Version 2 are required.");return;}
+  const btn=document.getElementById("compare");btn.disabled=true;
+  try{
+    progress(5,"Reading Version 1...");
+    const wb1=await readWorkbook(files[0]);
+    progress(22,"Reading Version 2...");
+    const wb2=await readWorkbook(files[1]);
+    let wb3=null;
+    if(files[2]){progress(38,"Reading Version 3...");wb3=await readWorkbook(files[2]);}
+
+    progress(48,"Finding corresponding worksheets...");
+    // Act on ALL worksheets from every selected version.
+    // A sheet missing from one version is treated as an empty sheet,
+    // allowing all rows in the other version(s) to be reported.
+    const sheetSet=new Set([...wb1.SheetNames,...wb2.SheetNames,...(wb3?wb3.SheetNames:[])]);
+    const sheets=[...sheetSet];
+    if(!sheets.length)throw new Error("No worksheets were found.");
+
+    const output=new ExcelJS.Workbook();
+    output.creator="Excel Version Comparator";
+    const summary=[],rowChanges=[],details=[];
+    const mode=document.getElementById("mode").value;
+
+    for(let i=0;i<sheets.length;i++){
+      const name=sheets[i];
+      progress(50+(i/sheets.length)*35,"Comparing "+(i+1)+" of "+sheets.length+": "+name);
+      writeComparisonSheet(output,name,wb1.Sheets[name]||null,wb2.Sheets[name]||null,wb3?(wb3.Sheets[name]||null):null,mode,summary,rowChanges,details);
+    }
+
+    progress(87,"Creating Summary...");
+    reportSheet(output,"Summary",
+      ["Worksheet","Row","Transition","Status"],
+      summary.map(x=>({values:[x.sheet,x.row,x.transition,x.status],status:x.status})),
+      [25,10,16,15],
+      x=>statusColor(x.status)
+    );
+
+    const countMap={};
+    summary.forEach(x=>{
+      if(!countMap[x.transition])countMap[x.transition]={Added:0,Removed:0,Changed:0};
+      countMap[x.transition][x.status]++;
+    });
+    reportSheet(output,"Row Change Counts",
+      ["Transition","Rows Added","Rows Removed","Rows Changed","Total Affected"],
+      Object.entries(countMap).map(([k,v])=>({values:[k,v.Added,v.Removed,v.Changed,v.Added+v.Removed+v.Changed]})),
+      [18,15,16,16,18]
+    );
+
+    reportSheet(output,"Row Changes",
+      ["Worksheet","Row","Transition","Status","Previous Row Snapshot","New Row Snapshot"],
+      rowChanges.map(x=>({values:[x.sheet,x.row,x.transition,x.status,x.oldRow,x.newRow],status:x.status})),
+      [25,9,16,14,60,60],
+      x=>statusColor(x.status)
+    );
+
+    reportSheet(output,"Change Details",
+      ["Worksheet","Row","Column","Version 1","Version 2","Version 3","Change"],
+      details.map(x=>({values:[x.sheet,x.row,x.column,x.v1,x.v2,x.v3,x.change],status:x.change==="Added"?"Added":x.change==="Removed"?"Removed":"Changed"})),
+      [25,9,10,30,30,30,16],
+      x=>statusColor(x.status)
+    );
+
+    // Apply red changed-text highlighting in Row Changes and Change Details.
+    applyReportTextHighlights(output);
+
+    // Change Details: keep row 1 untouched. Hyperlink non-empty Column B cells
+    // from B2 onward to the corresponding changed cell in the comparison sheet.
+    const changeDetailsSheet=output.getWorksheet("Change Details");
+    if(changeDetailsSheet){
+      for(let r=2;r<=changeDetailsSheet.rowCount;r++){
+        const sheetCell=changeDetailsSheet.getCell(r,1);
+        const rowCell=changeDetailsSheet.getCell(r,2);
+        const columnCell=changeDetailsSheet.getCell(r,3);
+        const targetSheet=sheetCell.value;
+        const targetRow=rowCell.value;
+        const targetColumn=columnCell.value;
+        if(targetSheet&&targetColumn&&targetRow!==null&&targetRow!==undefined&&targetRow!==""){
+          // Comparison sheets have two header rows, so original row N is at N+2.
+          const excelTarget=String(targetColumn)+String(Number(targetRow)+2);
+          rowCell.value={
+            text:String(targetRow),
+            hyperlink:"#'"+String(targetSheet).replace(/'/g,"''")+"'!"+excelTarget
+          };
+          rowCell.alignment={horizontal:"center",vertical:"middle",wrapText:!!document.getElementById("wrapText")?.checked};
+          rowCell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFDDEBF7"}};
+          rowCell.font={name:"Calibri",size:11,color:{argb:"FF0563C1"},underline:true};
+        }
+      }
+    }
+
+    // Put report sheets first
+    output.worksheets.forEach(ws=>{ if(["Summary","Row Change Counts","Row Changes","Change Details"].includes(ws.name)) ws.orderNo=0; });
+
+    progress(95,"Writing real Excel formatting...");
+    const filename=await saveWorkbook(output);
+    progress(100,"Completed");
+
+    const added=summary.filter(x=>x.status==="Added").length;
+    const removed=summary.filter(x=>x.status==="Removed").length;
+    const changed=summary.filter(x=>x.status==="Changed").length;
+    showStatus(`Completed successfully.\nRows added: ${added}\nRows removed: ${removed}\nRows changed: ${changed}\n\nOutput file: ${filename}\n\nThe output cells contain actual Excel fills, borders and bold formatting.`,"success");
+  }catch(e){
+    console.error(e);
+    showStatus("Comparison failed: "+e.message,"error");
+  }finally{btn.disabled=false;}
+});
+
+document.getElementById("reset").addEventListener("click",()=>{
+  files=[null,null,null];outputDir=null;
+  [1,2,3].forEach(i=>{document.getElementById("f"+i).value="";document.getElementById("n"+i).textContent="No file selected";});
+  document.getElementById("foldername").textContent="No folder selected — browser download will be used";
+  document.getElementById("progress").style.display="none";
+  document.getElementById("status").style.display="none";
+  updateCount();
+});
+updateCount();
+</script>
+</body>
+</html>

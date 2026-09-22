@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF PO & Service Order Table Extractor</title>
+
+<!--
+  Client-side only:
+  - PDF.js: reads text and coordinates from selectable/searchable PDFs.
+  - SheetJS: creates the downloadable Excel workbook.
+  No PDF or extracted data is uploaded to a server.
+  For Vercel, these CDN libraries can later be pinned/bundled into the repository
+  if a completely self-contained deployment is required.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+:root{
+  --bg:#f4f7fb; --card:#ffffff; --ink:#253044; --muted:#68758a;
+  --accent:#7c9cc7; --accent2:#dce8f6; --border:#334155;
+  --ok:#2f855a; --warn:#b7791f; --bad:#c53030;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif}
+header{padding:22px 28px;background:linear-gradient(135deg,#eaf1f9,#f9f5ed);border-bottom:2px solid #52647a}
+h1{margin:0 0 5px;font-size:24px}
+.subtitle{color:var(--muted);font-size:13px}
+.container{max-width:1500px;margin:20px auto;padding:0 18px}
+.card{background:var(--card);border:1px solid #9aa8ba;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px #0000000b}
+.c1{background:#fff8ef}.c2{background:#f1fbf6}.c3{background:#f2f7ff}.c4{background:#fffce8}.c5{background:#f7f0fb}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button,.file-label{border:1px solid #43546a;background:#edf3fa;color:#253044;padding:9px 14px;border-radius:7px;cursor:pointer;font-weight:600}
+button:hover,.file-label:hover{background:#dce8f6}
+button.primary{background:#dbe9f7;border-color:#496986}
+button:disabled{opacity:.5;cursor:not-allowed}
+input[type=file]{display:none}
+.dropzone{border:2px dashed #718096;border-radius:10px;padding:28px;text-align:center;background:#fafcff;transition:.15s}
+.dropzone.drag{background:#edf5fd;border-color:#426b91}
+.dropzone strong{display:block;font-size:17px;margin-bottom:5px}
+.status{padding:10px 12px;border-radius:7px;background:#f1f5f9;border:1px solid #cbd5e1;margin-top:12px;font-size:13px}
+.status.ok{background:#edf9f1;border-color:#8ac6a0;color:#245c3b}
+.status.warn{background:#fff9e8;border-color:#e8ca79;color:#765615}
+.status.bad{background:#fff0f0;border-color:#e7a3a3;color:#8c2424}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.stat{border:1px solid #b8c2cf;border-radius:8px;padding:12px;background:#fbfcfe}
+.stat .n{font-size:21px;font-weight:700}.stat .l{font-size:11px;color:var(--muted);margin-top:2px}
+.table-wrap{overflow:auto;max-height:620px;border:1px solid #7d8b9c}
+table{border-collapse:collapse;width:100%;font-size:12px;background:white}
+th,td{border:1px solid var(--border);padding:6px 7px;vertical-align:top}
+th{background:#e6eef7;position:sticky;top:0;z-index:2;white-space:nowrap}
+td[contenteditable="true"]{background:#fffef8}
+td[contenteditable="true"]:focus{outline:2px solid #7c9cc7;outline-offset:-2px}
+.numeric{text-align:right;white-space:nowrap}
+.center{text-align:center}
+.small{font-size:11px;color:var(--muted)}
+.warning-cell{background:#fff3cd !important}
+.error-cell{background:#ffe0e0 !important}
+.ok-cell{background:#e9f7ee !important}
+.file-list{margin:10px 0 0;padding-left:20px}
+.file-list li{margin:3px 0}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.filters input,.filters select{padding:8px;border:1px solid #9aa8ba;border-radius:6px}
+.preview-note{font-size:12px;color:var(--muted);margin-top:6px}
+details{border:1px solid #b8c2cf;border-radius:7px;padding:8px;margin-top:10px}
+summary{cursor:pointer;font-weight:600}
+.codebox{font-family:Consolas,monospace;font-size:11px;white-space:pre-wrap;background:#f8fafc;border:1px solid #cbd5e1;padding:10px;border-radius:6px;max-height:180px;overflow:auto}
+@media(max-width:700px){header{padding:18px}.container{padding:0 8px}.card{padding:10px}}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>PDF PO & Service Order Table Extractor</h1>
+  <div class="subtitle">Client-side extraction for selectable-text JSW-style Purchase Orders and Service Orders • editable preview • Excel export</div><div id="dependencyStatus" class="small" style="margin-top:7px"></div>
+</header>
+
+<div class="container">
+
+  <div class="card c1">
+    <div class="dropzone" id="dropzone">
+      <strong>Drop PDF file(s) here</strong>
+      <span class="small">or use Browse PDF. Multiple PDFs can be processed into one Excel workbook.</span>
+      <div style="margin-top:14px">
+        <label class="file-label" for="pdfInput">Browse PDF(s)</label>
+        <input id="pdfInput" type="file" accept="application/pdf,.pdf" multiple>
+      </div>
+    </div>
+
+    <ul class="file-list" id="fileList"></ul>
+
+    <div class="toolbar" style="margin-top:12px">
+      <button class="primary" id="extractBtn" disabled>Extract Table</button>
+      <button id="clearBtn">Clear</button>
+      <button id="exportBtn" disabled>Download Excel</button>
+      <button id="csvBtn" disabled>Download CSV</button>
+      <button id="jsonBtn" disabled>Download JSON</button>
+      <button id="printBtn" disabled>Print Preview</button>
+    </div>
+
+    <div id="status" class="status">Select one or more PDF files.</div>
+    <div class="stats">
+      <div class="stat"><div class="n" id="pagesStat">0</div><div class="l">Pages processed</div></div>
+      <div class="stat"><div class="n" id="itemsStat">0</div><div class="l">Items detected</div></div>
+      <div class="stat"><div class="n" id="filesStat">0</div><div class="l">PDF files</div></div>
+      <div class="stat"><div class="n" id="warningsStat">0</div><div class="l">Warnings</div></div>
+    </div>
+  </div>
+
+  <div class="card c2" id="previewCard" style="display:none">
+    <h2 style="margin:0 0 5px;font-size:18px">Extracted Items</h2>
+    <div class="preview-note">Cells are editable. Data is extracted as it appears in the PDF; no mathematical validation is performed. Page number is retained for traceability.</div>
+    <div class="filters">
+      <input id="searchBox" placeholder="Search item code / description / specification...">
+      <select id="fileFilter"><option value="">All PDFs</option></select>
+    </div>
+    <div class="table-wrap">
+      <table id="itemsTable"></table>
+    </div>
+  </div>
+
+  <div class="card c3" id="headerCard" style="display:none">
+    <h2 style="margin:0 0 8px;font-size:18px">PO Header Preview</h2>
+    <div class="table-wrap" style="max-height:360px">
+      <table id="headerTable"></table>
+    </div>
+  </div>
+
+  <div class="card c4" id="serviceSummaryCard" style="display:none">
+    <h2 style="margin:0 0 8px;font-size:18px">Service Order Summary</h2>
+    <div class="table-wrap" style="max-height:240px"><table id="serviceSummaryTable"></table></div>
+  </div>
+
+  <div class="card c5" id="validationCard" style="display:none">
+    <h2 style="margin:0 0 8px;font-size:18px">Validation / Extraction Diagnostics</h2>
+    <div id="validationSummary" class="status"></div>
+    <details>
+      <summary>Extraction method and configuration</summary>
+      <div id="diagnosticBox"></div><div class="codebox" id="diagnosticMethod" style="margin-top:10px"></div>
+    </details>
+  </div>
+
+</div>
+
+<script>
+/* ----------------------------- Configuration ----------------------------- */
+const CONFIG = {
+  lineTolerance: 2.5,
+  itemCodeRegex: /^\d{6,14}$/,
+  serviceCodeRegex: /^[A-Z]{2,6}\d{6,16}$/i,
+  materialSrRegex: /^\d{1,3}$/,
+  serviceSrRegex: /^\d+\.\d+$/,
+  deliveryRegex: /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/,
+  numberRegex: /^-?\d[\d,]*(?:\.\d+)?$/,
+  tableHeaderKeywords: ['SR','ITEM','CODE','DESCRIPTION','UOM','QTY','UNIT','TOTAL','DELIVERY','SERVICE','COMPLETION'],
+  longDescriptionMarkers: [/TYPE\s*:/i, /EQUIPMENT\s*NAME\s*:/i, /PROJECT\s*NAME\s*:/i, /LAY\s*:/i, /INSTALL\s*:/i, /TERMINATE\s*:/i, /FABRICATE\s*:/i, /PROVIDE\s*:/i, /ERECT\s*:/i, /HIRE\s*:/i, /PAINT\s*:/i, /JOIN\s*:/i],
+  fields: [
+    'Sr. No.','Item Code','Description','Long Description / Specification',
+    'UOM','Quantity','Unit Price','Total Base Value','Total Value',
+    'Delivery Schedule','Source PDF','Page'
+  ]
+};
+
+const FOOTER_PATTERNS = [
+  /^(Thanking You|Yours sincerely,?|FOR JSW STEEL LIMITED|FOR JSW VIJAYANAGAR METALLICS LIMITED)$/i,
+  /^Plant GST No\s*:/i,
+  /^JSW Centre,/i,
+  /^P\.O\.\s*No\.?\s*:/i,
+  /^VJNR\/\d+/i,
+  /^JVML\/\/?C\//i,
+  /^AUTHORISED SIGNATORY$/i,
+  /^Page\s*No\.?\s*:/i,
+  // Purchase Requisition (SAP-style) footer/signature block.
+  /^Estimated Price\s*:/i,
+  /^\(Excl\.\s*Cenvat\)$/i,
+  /^Created By$/i,
+  /^Concurrence Dept\.?$/i,
+  /^Concurrence Stores\s*\/\s*Accounts$/i,
+  /^Approving Authority$/i,
+  /^Name\s*:/i,
+  /^Date\s*:/i,
+  /^Page\s*:\s*\d+\s*\/\s*\d+$/i
+];
+
+// Marks the true end of the item table: once one of these is seen, the rest
+// of the page/document is order-level summary and terms text, not item
+// data, so collection for the current item stops here entirely rather than
+// skipping past it (unlike FOOTER_PATTERNS' per-page boilerplate, there is
+// no further item content to pick back up afterward).
+const HARD_STOP_PATTERNS = [
+  /^TOTAL DUTIES\/TAXES/i,
+  /^TOTAL BASE VALUE/i,
+  /^TOTAL PO VALUE/i,
+  /^Total Value\s*\(In Words\)/i,
+  /^PRICE BASIS/i
+];
+
+function isFooterText(txt){ return FOOTER_PATTERNS.some(r=>r.test(normalizeText(txt))); }
+function isHardStopText(txt){ return HARD_STOP_PATTERNS.some(r=>r.test(normalizeText(txt))); }
+function isNumberText(x){ return CONFIG.numberRegex.test(normalizeNumberText(x)); }
+
+// A repeated column-heading row (e.g. the table header reprinted at the
+// top of a continuation page). Matches only short lines made up entirely
+// of heading words, so genuine description text isn't mistaken for one.
+const HEADER_ROW_WORDS = new Set(['SR','NO','ITEM','SERVICE','CODE','SHORT','DESCRIPTION','UOM','QTY','UNIT','PRICE','TOTAL','BASE','VALUE','DELIVERY','SCHEDULE','COMPLETION','DATE']);
+function isHeaderRowText(txt){
+  const words=normalizeText(txt).toUpperCase().replace(/\./g,'').split(/\s+/).filter(Boolean);
+  if(!words.length || words.length>20) return false;
+  return words.every(w=>HEADER_ROW_WORDS.has(w));
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+setTimeout(()=>{
+  const ok=typeof pdfjsLib!=='undefined' && typeof XLSX!=='undefined';
+  $('dependencyStatus').textContent=ok ? '✓ PDF and Excel engines loaded' : '⚠ PDF/Excel engine not loaded — reload with internet/CDN access.';
+},100);
+
+let selectedFiles = [];
+let extracted = {items:[], headers:[], diagnostics:[], serviceSummaries:[]};
+
+/* ----------------------------- UI helpers ----------------------------- */
+const $ = id => document.getElementById(id);
+
+function setStatus(text, type=''){
+  $('status').textContent = text;
+  $('status').className = 'status ' + type;
+}
+function setStats(){
+  $('pagesStat').textContent = extracted.diagnostics.reduce((s,d)=>s+d.pages,0);
+  $('itemsStat').textContent = extracted.items.length;
+  $('filesStat').textContent = selectedFiles.length;
+  $('warningsStat').textContent = extracted.diagnostics.reduce((s,d)=>s+d.warnings.length,0);
+}
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
+function normalizeText(s){
+  return String(s ?? '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function normalizeNumberText(s){
+  return normalizeText(s).replace(/[,₹$]/g,'');
+}
+function toNumber(s){
+  const n = Number(normalizeNumberText(s));
+  return Number.isFinite(n) ? n : null;
+}
+function downloadBlob(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+}
+function safeSheetName(name){
+  return String(name).replace(/[\/*?:\[\]]/g,'_').slice(0,31) || 'Sheet';
+}
+function uniqueSheetName(wb,name){
+  let base=safeSheetName(name), n=base, i=2;
+  while(wb.SheetNames.includes(n)){ n=safeSheetName(base.slice(0,27)+'_'+i); i++; }
+  return n;
+}
+
+/* ----------------------------- File selection ----------------------------- */
+$('pdfInput').addEventListener('change', async e=>{
+  selectedFiles=[...e.target.files].filter(f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name));
+  renderFileList();
+  if(selectedFiles.length){
+    if(typeof pdfjsLib==='undefined' || typeof XLSX==='undefined'){
+      setStatus('Required PDF/Excel libraries did not load. Check internet/CDN access and reload.','bad');
+      return;
+    }
+    setTimeout(()=>$('extractBtn').click(),50);
+  }
+});
+$('dropzone').addEventListener('dragover',e=>{e.preventDefault();$('dropzone').classList.add('drag')});
+$('dropzone').addEventListener('dragleave',()=>$('dropzone').classList.remove('drag'));
+$('dropzone').addEventListener('drop',e=>{
+  e.preventDefault(); $('dropzone').classList.remove('drag');
+  selectedFiles=[...e.dataTransfer.files].filter(f=>f.type==='application/pdf'||/\.pdf$/i.test(f.name));
+  renderFileList();
+  if(selectedFiles.length) setTimeout(()=>$('extractBtn').click(),50);
+});
+function renderFileList(){
+  $('fileList').innerHTML=selectedFiles.map(f=>`<li>${escapeHtml(f.name)} <span class="small">(${(f.size/1024/1024).toFixed(2)} MB)</span></li>`).join('');
+  $('extractBtn').disabled=!selectedFiles.length;
+  setStatus(selectedFiles.length ? `${selectedFiles.length} PDF file(s) selected. Extraction will start automatically.` : 'Select one or more PDF files.');
+}
+
+/* ----------------------------- PDF text extraction ----------------------------- */
+async function getPageLines(page){
+  const content=await page.getTextContent({normalizeWhitespace:false,disableCombineTextItems:true});
+  const items=(content.items||[])
+    .filter(x=>x.str && x.str.trim())
+    .map(x=>{
+      const tr=x.transform || [1,0,0,1,0,0];
+      return {
+        text:x.str,
+        x:tr[4],
+        y:tr[5],
+        width:x.width||0,
+        height:Math.abs(tr[3]||x.height||8)
+      };
+    });
+
+  // Group by baseline/Y. PDF coordinates use bottom-origin.
+  items.sort((a,b)=>b.y-a.y || a.x-b.x);
+  const lines=[];
+  for(const item of items){
+    let line=lines.find(l=>Math.abs(l.y-item.y)<=CONFIG.lineTolerance);
+    if(!line){ line={y:item.y,items:[]}; lines.push(line); }
+    line.items.push(item);
+  }
+  lines.sort((a,b)=>b.y-a.y);
+  for(const line of lines){
+    line.items.sort((a,b)=>a.x-b.x);
+    line.text=line.items.map(x=>x.text).join(' ').replace(/\s+/g,' ').trim();
+    line.minX=Math.min(...line.items.map(x=>x.x));
+    line.maxX=Math.max(...line.items.map(x=>x.x+x.width));
+  }
+  return lines;
+}
+
+function findHeaderAnchor(lines, kind='material'){
+  let best=null,bestScore=-1;
+  for(let i=0;i<lines.length;i++){
+    let score=0;
+    const window=lines.slice(i,Math.min(lines.length,i+5)).map(l=>l.text.toUpperCase()).join(' ');
+    if(kind==='material'){
+      if(/ITEM/.test(window)) score+=2;
+      if(/CODE/.test(window)) score+=1;
+      if(/UOM/.test(window)) score+=1;
+      if(/QTY/.test(window)) score+=1;
+      if(/UNIT/.test(window)) score+=1;
+      if(/TOTAL/.test(window)) score+=1;
+      if(/DELIVERY/.test(window)) score+=2;
+      if(/SCHEDULE/.test(window)) score+=1;
+    }else if(kind==='service'){
+      if(/SERVICE/.test(window)) score+=1;
+      if(/CODE/.test(window)) score+=2;
+      if(/DESCRIPTION/.test(window)) score+=1;
+      if(/QTY/.test(window)) score+=1;
+      if(/UOM/.test(window)) score+=1;
+      if(/UNIT/.test(window)) score+=1;
+      if(/PRICE/.test(window)) score+=1;
+      if(/TOTAL/.test(window)) score+=1;
+    }
+    if(score>bestScore){bestScore=score;best=i;}
+  }
+  if(best===null || bestScore < (kind==='material'?5:6)) return null;
+  return {index:best, y:lines[best].y, score:bestScore, line:lines[best], kind};
+}
+
+function findTableHeaders(lines){
+  return {
+    material:findHeaderAnchor(lines,'material'),
+    service:findHeaderAnchor(lines,'service')
+  };
+}
+
+function detectMaterialStart(line){
+  const texts=line.items.map(x=>({x,text:normalizeText(x.text)}));
+  const srObj=texts.find(z=>CONFIG.materialSrRegex.test(z.text) && z.x.x < 70);
+  if(!srObj) return null;
+  const codeObj=texts.find(z=>CONFIG.itemCodeRegex.test(z.text));
+  if(!codeObj) return null;
+  return {sr:srObj.text,code:codeObj.text};
+}
+
+function detectServiceStart(line){
+  const texts=line.items.map(x=>({x,text:normalizeText(x.text)}));
+  const srObj=texts.find(z=>CONFIG.serviceSrRegex.test(z.text) && z.x.x < 75);
+  if(!srObj) return null;
+  const codeObj=texts.find(z=>CONFIG.serviceCodeRegex.test(z.text) && z.x.x >= 45 && z.x.x < 170);
+  if(!codeObj) return null;
+  return {sr:srObj.text,code:codeObj.text};
+}
+
+function xCenter(x){ return x.x+x.width/2; }
+
+function inferColumnRanges(headerLines, kind){
+  const tokens=[];
+  for(const line of headerLines){
+    for(const it of line.items){
+      const t=normalizeText(it.text).toUpperCase();
+      tokens.push({t,c:xCenter(it)});
+    }
+  }
+  function first(regex, min=0){
+    const a=tokens.find(z=>regex.test(z.t) && z.c>=min);
+    return a?.c ?? null;
+  }
+  if(kind==='service'){
+    // Coordinates inferred from the actual SERVICE CODE / QTY / UOM /
+    // UNIT PRICE / TOTAL PRICE header in this service-order template.
+    const q=first(/^QTY\.?$/), u=first(/^UOM$/), unit=first(/^UNIT$/), total=first(/^TOTAL$/);
+    return {
+      sr:[20,55], code:[55,150], description:[150,(q??325)-18],
+      qty:[(q??325)-28,(u??360)-8], uom:[(u??360)-8,(unit??410)-12],
+      unit:[(unit??410)-12,(total??520)-20], total:[(total??520)-20,575]
+    };
+  }
+  const uom=first(/^UOM$/), qty=first(/^QTY\.?$/), unit=first(/^UNIT$/), total1=tokens.filter(z=>/^TOTAL$/i.test(z.t)), delivery=first(/^DELIVERY$/);
+  const base=total1[0]?.c ?? 380, total=total1[1]?.c ?? 440;
+  return {
+    sr:[0,28], code:[28,82], description:[82,(uom??225)-8],
+    uom:[(uom??225)-12,(qty??270)-10], qty:[(qty??270)-10,(unit??330)-10],
+    unit:[(unit??330)-10,base-10], base:[base-10,total-10], total:[total-10,(delivery??520)-10],
+    delivery:[(delivery??520)-10,590]
+  };
+}
+
+function valueInRange(line, range, accept){
+  const candidates=line.items.filter(x=>{
+    const c=xCenter(x);
+    return c>=range[0] && c<range[1] && (!accept || accept(normalizeText(x.text)));
+  }).sort((a,b)=>a.x-b.x);
+  return candidates.length ? candidates.map(x=>normalizeText(x.text)).join(' ') : '';
+}
+
+function extractFromRange(lines, itemIndex, range, accept, neighborOffsets=[0,-1,1,-2]){
+  for(const off of neighborOffsets){
+    const i=itemIndex+off;
+    if(i<0 || i>=lines.length) continue;
+    const v=valueInRange(lines[i],range,accept);
+    if(v) return v;
+  }
+  return '';
+}
+
+function cleanDescriptionText(arr){
+  return normalizeText(arr.join(' '))
+    .replace(/(?:Thanking You|Yours sincerely,?|FOR JSW STEEL LIMITED|FOR JSW VIJAYANAGAR METALLICS LIMITED).*$/i,'')
+    .replace(/Plant GST No\s*:.*$/i,'')
+    .replace(/JSW Centre,.*$/i,'')
+    .replace(/TOTAL DUTIES\/TAXES.*$/i,'')
+    .replace(/TOTAL BASE VALUE.*$/i,'')
+    .replace(/TOTAL PO VALUE.*$/i,'')
+    .replace(/Total Value\s*\(In Words\).*$/i,'')
+    .replace(/PRICE BASIS.*$/i,'')
+    .trim();
+}
+
+function parseMaterialBlock(block,fileName,pageNo,ranges){
+  const start=block.map(detectMaterialStart).find(Boolean);
+  if(!start) return null;
+  const itemIndex=block.findIndex(d=>{const x=detectMaterialStart(d);return x&&x.code===start.code&&x.sr===start.sr;});
+  const row={'Sr. No.':start.sr,'Item Code':start.code,'Description':'','Long Description / Specification':'','UOM':'','Quantity':'','Unit Price':'','Total Base Value':'','Total Value':'','Delivery Schedule':'','Source PDF':fileName,'Page':pageNo};
+  row['UOM']=extractFromRange(block,itemIndex,ranges.uom,x=>/^[A-Za-z]{1,8}$/.test(x));
+  row['Quantity']=extractFromRange(block,itemIndex,ranges.qty,isNumberText);
+  row['Unit Price']=extractFromRange(block,itemIndex,ranges.unit,isNumberText);
+  row['Total Base Value']=extractFromRange(block,itemIndex,ranges.base,isNumberText);
+  row['Total Value']=extractFromRange(block,itemIndex,ranges.total,isNumberText);
+  row['Delivery Schedule']=extractFromRange(block,itemIndex,ranges.delivery,x=>CONFIG.deliveryRegex.test(x));
+
+  const desc=[],longDesc=[]; let inLong=false;
+  for(let i=itemIndex+1;i<block.length;i++){
+    const txt=normalizeText(block[i].text); if(!txt) continue;
+    // Total-value-in-words / price-basis / terms text marks the end of the
+    // item table (nothing after it belongs to any item), so stop entirely.
+    if(isHardStopText(txt)) break;
+    // Page-footer boilerplate and reprinted column headers can fall between
+    // this item's row and its continuation on the next page; skip them
+    // without aborting the rest of the block.
+    if(isFooterText(txt) || isHeaderRowText(txt)) continue;
+    if(CONFIG.longDescriptionMarkers.some(r=>r.test(txt))) inLong=true;
+    if(inLong) longDesc.push(txt); else if(block[i].minX < ranges.uom[0]) desc.push(txt);
+  }
+  row['Description']=cleanDescriptionText(desc);
+  row['Long Description / Specification']=cleanDescriptionText(longDesc);
+  return row;
+}
+
+function parseServiceBlock(block,fileName,pageNo,ranges){
+  const start=block.map(detectServiceStart).find(Boolean);
+  if(!start) return null;
+  const itemIndex=block.findIndex(d=>{const x=detectServiceStart(d);return x&&x.code===start.code&&x.sr===start.sr;});
+  const row={'Sr. No.':start.sr,'Item Code':start.code,'Description':'','Long Description / Specification':'','UOM':'','Quantity':'','Unit Price':'','Total Base Value':'','Total Value':'','Delivery Schedule':'','Source PDF':fileName,'Page':pageNo};
+
+  row['Quantity']=extractFromRange(block,itemIndex,ranges.qty,isNumberText);
+  row['UOM']=extractFromRange(block,itemIndex,ranges.uom,x=>/^[A-Za-z]{1,8}$/i.test(x));
+  row['Unit Price']=extractFromRange(block,itemIndex,ranges.unit,isNumberText);
+  row['Total Value']=extractFromRange(block,itemIndex,ranges.total,isNumberText);
+
+  // In a Service Order the detailed service table has TOTAL PRICE, not
+  // TOTAL BASE VALUE / TOTAL VALUE. Preserve the printed total in Total Value.
+  row['Total Base Value']='';
+  row['Delivery Schedule']='';
+
+  const texts=[];
+  for(let i=itemIndex+1;i<block.length;i++){
+    const txt=normalizeText(block[i].text); if(!txt) continue;
+    // Total-value-in-words / price-basis / terms text marks the end of the
+    // item table (nothing after it belongs to any item), so stop entirely.
+    if(isHardStopText(txt)) break;
+    // Page-footer boilerplate and reprinted column headers can fall between
+    // this item's row and its continuation on the next page; skip them
+    // without aborting the rest of the block.
+    if(isFooterText(txt) || isHeaderRowText(txt)) continue;
+    texts.push({line:block[i],txt});
+  }
+  if(texts.length){
+    row['Description']=texts[0].txt;
+    row['Long Description / Specification']=cleanDescriptionText(texts.slice(1).map(x=>x.txt));
+  }
+  return row;
+}
+
+function extractServiceSummary(lines,fileName,pageNo){
+  const header=findHeaderAnchor(lines,'material');
+  if(!header) return null;
+  const starts=[];
+  for(let i=header.index+1;i<Math.min(lines.length,header.index+12);i++){
+    const items=lines[i].items;
+    const sr=items.find(x=>/^\d{1,3}$/.test(normalizeText(x.text)) && x.x<70);
+    if(sr){
+      const txt=lines[i].text;
+      // The summary row is the one before "Dept." and before the detail header.
+      if(/E&I work|SERVICE SHORT DESCRIPTION/i.test(txt) || (items.length>=5 && /\d+\.\d+/.test(txt))){
+        starts.push(i); break;
+      }
+    }
+  }
+  if(!starts.length) return null;
+  const i=starts[0], block=lines.slice(i,Math.min(lines.length,i+3));
+  const first=block[0];
+  const sr=normalizeText(first.items.find(x=>/^\d{1,3}$/.test(normalizeText(x.text))&&x.x<70)?.text||'');
+  if(!sr) return null;
+  const nonFooter=block.map(x=>x.text).filter(t=>t&&!isFooterText(t));
+  const text=nonFooter.join(' ');
+  const uom=(first.items.find(x=>x.x>190&&x.x<260)?.text||'').trim();
+  const nums=first.items.filter(x=>isNumberText(x.text)).map(x=>normalizeText(x.text));
+  return {'Sr. No.':sr,'Service Short Description':text.replace(/^\d+\s*/,'').replace(/\s+(Dept\s*:.*)$/i,''),'UOM':uom,'Quantity':nums[0]||'','Total':nums[1]||'','Completion Date':(first.items.find(x=>CONFIG.deliveryRegex.test(normalizeText(x.text)))?.text||'').trim(),'Source PDF':fileName,'Page':pageNo};
+}
+
+/* ----------------------------- Purchase Requisition (SAP-style) ----------------------------- */
+// A different source document from the JSW PO / Service Order: a one-line
+// "PURCHASE REQUISITION" title, no vendor section, and a Sl./Material/
+// Description/Qty/Uom/Price/ Unit/Value/.../WBS Element item table with a
+// "MATERIAL LONG TEXT:" marker introducing the long description.
+function isRequisitionDocument(lines){
+  return lines.some(l=>/^PURCHASE REQUISITION$/i.test(normalizeText(l.text)));
+}
+
+function findRequisitionHeaderLine(lines){
+  for(let i=0;i<lines.length;i++){
+    const t=normalizeText(lines[i].text).toUpperCase();
+    if(/\bSL\.?\b/.test(t) && /MATERIAL/.test(t) && /DESCRIPTION/.test(t) && /QTY/.test(t)) return {index:i,line:lines[i]};
+  }
+  return null;
+}
+
+// Column x-ranges are inferred from the header row's own token positions
+// where possible; the numbers used to nudge each boundary are tuned to the
+// SAP "Purchase Requisition" export this was verified against and may need
+// adjustment for a differently laid-out variant of the same report.
+function inferRequisitionColumnRanges(headerLine){
+  const toks=headerLine?headerLine.items.map(it=>({t:normalizeText(it.text).toUpperCase(),c:xCenter(it)})):[];
+  const find=regex=>{const m=toks.find(z=>regex.test(z.t));return m?m.c:null};
+  const Q=find(/^QTY\.?$/)??280, U=find(/^UOM$/)??315, P=find(/UNIT/)??355, V=find(/^VALUE$/)??405, R=find(/^REQUIRED$/)??495;
+  return {
+    description:[85,Q-20],
+    qty:[Q-25,U-10],
+    uom:[U-15,P-20],
+    unit:[P-20,V-20],
+    value:[V-20,R-55],
+    required:[R-25,R+40]
+  };
+}
+
+function parseRequisitionBlock(block,fileName,pageNo,ranges){
+  const start=block.map(detectMaterialStart).find(Boolean);
+  if(!start) return null;
+  const itemIndex=block.findIndex(d=>{const x=detectMaterialStart(d);return x&&x.code===start.code&&x.sr===start.sr;});
+  const row={'Sr. No.':start.sr,'Item Code':start.code,'Description':'','Long Description / Specification':'','UOM':'','Quantity':'','Unit Price':'','Total Base Value':'','Total Value':'','Delivery Schedule':'','Source PDF':fileName,'Page':pageNo};
+  row['Quantity']=extractFromRange(block,itemIndex,ranges.qty,isNumberText);
+  row['UOM']=extractFromRange(block,itemIndex,ranges.uom,x=>/^[A-Za-z]{1,8}$/.test(x));
+  row['Unit Price']=extractFromRange(block,itemIndex,ranges.unit,isNumberText);
+  row['Total Value']=extractFromRange(block,itemIndex,ranges.value,isNumberText);
+  row['Delivery Schedule']=extractFromRange(block,itemIndex,ranges.required,x=>CONFIG.deliveryRegex.test(x));
+
+  const descParts=[],longParts=[]; let inLong=false;
+  for(let i=itemIndex;i<block.length;i++){
+    const line=block[i];
+    const t=normalizeText(line.text);
+    if(!t) continue;
+    if(/^MATERIAL LONG TEXT\s*:?$/i.test(t)){ inLong=true; continue; }
+    if(inLong){
+      // "Estimated Price:" is this item's own summary line, always printed
+      // once the long text ends, so it is a genuine stop rather than a
+      // page-boundary footer that legitimate text could still follow.
+      if(isFooterText(t)) break;
+      longParts.push(t);
+      continue;
+    }
+    if(isFooterText(t) || isHeaderRowText(t)) continue;
+    if(i===itemIndex || !detectMaterialStart(line)){
+      const v=valueInRange(line,ranges.description);
+      if(v) descParts.push(v);
+    }
+  }
+  row['Description']=cleanDescriptionText(descParts);
+  row['Long Description / Specification']=cleanDescriptionText(longParts);
+  return row;
+}
+
+function extractRequisitionHeader(lines){
+  const val=regex=>{ for(const l of lines){ const m=l.text.match(regex); if(m) return normalizeText(m[1]); } return ''; };
+  return {
+    'Document Type':'PURCHASE REQUISITION',
+    'PR No.':val(/^PR No\.\s*(.+)$/i),
+    'Status':val(/^Status\s+(.+)$/i),
+    'Approval Date / Changed Date':val(/^Approval Date\s*\/\s*Changed Date\s*(.+)$/i),
+    'Fund Center / Name':val(/^Fund Center\s*\/\s*Name\s*(.+)$/i),
+    'Justification':val(/^Justification:\s*(.+)$/i)
+  };
+}
+
+function extractRequisitionItems(lines,fileName,ranges){
+  const starts=[];
+  for(let i=0;i<lines.length;i++) if(detectMaterialStart(lines[i])) starts.push(i);
+  const items=[];
+  for(let s=0;s<starts.length;s++){
+    const a=starts[s], b=(s+1<starts.length?starts[s+1]:lines.length);
+    const item=parseRequisitionBlock(lines.slice(a,b),fileName,lines[starts[s]].page,ranges);
+    if(item) items.push(item);
+  }
+  return {items,mode:'requisition',warning:items.length?null:'No item rows detected in this Purchase Requisition.'};
+}
+
+function extractDocumentItems(lines,anyHeaderSeen,fileName,globalRanges){
+  // `lines` is the whole document's lines, in page + top-to-bottom order,
+  // each tagged with .page. Item blocks are cut between consecutive item
+  // starts in this combined stream, so a description that runs past a
+  // page break (before the next item's row) is still captured instead of
+  // being cut off at the page boundary.
+  const serviceStarts=[];
+  const materialStarts=[];
+  for(let i=0;i<lines.length;i++){
+    if(detectServiceStart(lines[i])) serviceStarts.push(i);
+    if(detectMaterialStart(lines[i])) materialStarts.push(i);
+  }
+  const items=[];
+  if(serviceStarts.length){
+    const ranges=globalRanges.service;
+    for(let s=0;s<serviceStarts.length;s++){
+      const a=Math.max(0,serviceStarts[s]-1), b=(s+1<serviceStarts.length?serviceStarts[s+1]:lines.length);
+      const item=parseServiceBlock(lines.slice(a,b),fileName,lines[serviceStarts[s]].page,ranges);
+      if(item) items.push(item);
+    }
+    return {items,mode:'service',warning:null};
+  }
+  if(materialStarts.length){
+    const ranges=globalRanges.material;
+    for(let s=0;s<materialStarts.length;s++){
+      const a=Math.max(0,materialStarts[s]-1), b=(s+1<materialStarts.length?materialStarts[s+1]:lines.length);
+      const item=parseMaterialBlock(lines.slice(a,b),fileName,lines[materialStarts[s]].page,ranges);
+      if(item) items.push(item);
+    }
+    return {items,mode:'material',warning:null};
+  }
+  return {items:[],mode:'none',warning:anyHeaderSeen?'No item rows detected in this document.':'No recognizable PO/Service Order table detected in this document.'};
+}
+
+/* ----------------------------- Header extraction ----------------------------- */
+function allText(lines){ return lines.map(l=>l.text).filter(Boolean).join('\n'); }
+function findValueAfterLabel(text, regex){
+  const m=text.match(regex);
+  return m ? normalizeText(m[1]) : '';
+}
+function labelValue(flat,labelPattern){
+  const m=flat.match(labelPattern);
+  return m ? normalizeText(m[1]) : '';
+}
+function extractHeader(allPageLines){
+  const first=allPageLines.slice(0,2).flat();
+  const text=first.map(l=>l.text).join('\n');
+  const flat=normalizeText(text.replace(/\n/g,' '));
+  const h={};
+  h['Document Type']=/SERVICE ORDER/i.test(flat)?'SERVICE ORDER':'PURCHASE ORDER';
+  h['PO Number']=labelValue(flat,/P\.O\.\s*No\.?\s*:\s*([^\s]+)/i);
+  h['PO Date']=labelValue(flat,/P\.O\.\s*Date\s*:\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+  h['Type']=labelValue(flat,/Type\s*:\s*([^\s]+)/i);
+  h['LD Applicable']=labelValue(flat,/LD\s*applicable\s*:\s*([^\s]+)/i);
+  h['Vendor Code']=labelValue(flat,/Vendor\s*Code\s*:\s*(\d+)/i);
+  h['Vendor Name']=labelValue(flat,/Name\s*:\s*(.*?)(?=\s+Address\s*:|\s+E-mail\s*:|\s+PAN\s+NO\s*:|\s+GST\s+No\.?\s*:|\s+Bank\s+Account\s*:|\s+Ph\.No\s*:|$)/i);
+  h['Vendor Email']=labelValue(flat,/E-mail\s*:\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})/i);
+  h['Vendor PAN']=labelValue(flat,/PAN\s*NO\s*:\s*([A-Z0-9]+)/i);
+  h['Vendor GST']=labelValue(flat,/GST\s*No\.?\s*:\s*([A-Z0-9]+)/i);
+  h['Bank Account']=labelValue(flat,/Bank\s+Account\s*:\s*([0-9]+)/i);
+  h['Vendor Phone']=labelValue(flat,/Ph\.No\s*:\s*([0-9]+)/i);
+  h['Order Description']=labelValue(flat,/Ph\.No\s*:\s*[0-9]+\s+(.+?)\s+Dear Sir\/Madam/i);
+  return h;
+}
+
+/* ----------------------------- Extraction diagnostics ----------------------------- */
+function buildExtractionWarnings(){
+  const warnings=[];
+  const required=['Item Code','Description','UOM','Quantity','Unit Price','Total Value'];
+  extracted.items.forEach((r,i)=>{
+    required.forEach(field=>{
+      if(!String(r[field]??'').trim()){
+        const solution = {
+          'Item Code':'Check the item-code column X-position or the PDF text layer.',
+          'Description':'Check the description column boundary and whether the short description is selectable text.',
+          'UOM':'Check the UOM column X-position in the extraction configuration.',
+          'Quantity':'Check the Quantity/QTY column X-position. If the PDF generator moved columns, adjust COLUMN_RANGES.qty.',
+          'Unit Price':'Check the Unit Price column X-position. If moved, adjust COLUMN_RANGES.unit.',
+          'Total Base Value':'Check the Total Base Value column X-position. If moved, adjust COLUMN_RANGES.base.',
+          'Total Value':'Check the Total Value column X-position. If moved, adjust COLUMN_RANGES.total.',
+          'Delivery Schedule':'Check the Delivery Schedule column X-position/date format.'
+        }[field];
+        warnings.push({type:'Missing data',file:r['Source PDF'],page:r['Page'],item:r['Sr. No.'],field,message:`${field} was not extracted for item ${r['Sr. No.']}.`,solution});
+      }
+    });
+  });
+  extracted.diagnostics.forEach(d=>d.warnings.forEach(w=>warnings.push({type:'PDF/Table detection',file:d.file,page:'',item:'',field:'',message:w,solution:'Confirm that the PDF is selectable text and that its table layout is close to the configured standard template.'})));
+  return warnings;
+}
+function applyExtractionDiagnostics(){
+  const warnings=buildExtractionWarnings();
+  extracted.warnings=warnings;
+}
+
+/* ----------------------------- Main extraction ----------------------------- */
+async function processFile(file){
+  const data=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data}).promise;
+  const pageLines=[];
+  const allLines=[];
+  let globalRanges={material:null,service:null};
+  let anyHeaderSeen=false;
+  const serviceSummaries=[];
+
+  for(let p=1;p<=pdf.numPages;p++){
+    setStatus(`Reading ${file.name} — page ${p} of ${pdf.numPages}...`);
+    const page=await pdf.getPage(p);
+    const lines=await getPageLines(page);
+    lines.forEach(l=>{l.page=p});
+    pageLines.push(lines);
+    allLines.push(...lines);
+
+    const headers=findTableHeaders(lines);
+    if(headers.material||headers.service) anyHeaderSeen=true;
+    if(!globalRanges.material && headers.material) globalRanges.material=inferColumnRanges([headers.material.line], 'material');
+    if(!globalRanges.service && headers.service) globalRanges.service=inferColumnRanges(lines.slice(headers.service.index,Math.min(lines.length,headers.service.index+3)), 'service');
+
+    if(p===1 && !isRequisitionDocument(lines)){
+      const summary=extractServiceSummary(lines,file.name,p);
+      if(summary) serviceSummaries.push(summary);
+    }
+  }
+
+  const isRequisition=isRequisitionDocument(allLines);
+  let result, header;
+  if(isRequisition){
+    const reqRanges=inferRequisitionColumnRanges(findRequisitionHeaderLine(allLines)?.line||null);
+    result=extractRequisitionItems(allLines,file.name,reqRanges);
+    header=extractRequisitionHeader(allLines);
+  }else{
+    if(!globalRanges.material) globalRanges.material=inferColumnRanges([], 'material');
+    if(!globalRanges.service) globalRanges.service=inferColumnRanges([], 'service');
+    result=extractDocumentItems(allLines,anyHeaderSeen,file.name,globalRanges);
+    header=extractHeader(pageLines);
+  }
+  const warnings=result.warning?[result.warning]:[];
+
+  if(serviceSummaries.length && result.mode==='service'){
+    const completion=serviceSummaries[0]['Completion Date']||'';
+    for(const item of result.items) item['Delivery Schedule']=completion;
+  }
+
+  return {
+    pages:pdf.numPages,
+    items:result.items,
+    header,
+    warnings,
+    mode:result.mode,
+    serviceSummaries
+  };
+}
+
+$('extractBtn').addEventListener('click', async ()=>{
+  if(!selectedFiles.length) return;
+  $('extractBtn').disabled=true;
+  $('exportBtn').disabled=true; $('csvBtn').disabled=true; $('jsonBtn').disabled=true; $('printBtn').disabled=true;
+  extracted={items:[],headers:[],diagnostics:[],serviceSummaries:[]};
+  const t0=performance.now();
+
+  try{
+    for(const file of selectedFiles){
+      try{
+        const result=await processFile(file);
+        extracted.items.push(...result.items);
+        extracted.headers.push({...result.header,'Source PDF':file.name});
+        extracted.serviceSummaries.push(...(result.serviceSummaries||[]));
+        extracted.diagnostics.push({file:file.name,pages:result.pages,warnings:result.warnings,mode:result.mode});
+      }catch(err){
+        extracted.diagnostics.push({file:file.name,pages:0,warnings:[err.message||String(err)]});
+      }
+    }
+
+    renderAll();
+
+    const warnings=extracted.diagnostics.flatMap(d=>d.warnings);
+    const errors=extracted.diagnostics.filter(d=>d.warnings.length).length;
+    const elapsed=((performance.now()-t0)/1000).toFixed(1);
+
+    if(!extracted.items.length){
+      setStatus('No table rows were detected. Check that the PDF is selectable/searchable text and that its layout is close to the configured standard template.','bad');
+    }else if(warnings.length){
+      setStatus(`Extraction completed in ${elapsed}s: ${extracted.items.length} item(s), with ${warnings.length} diagnostic warning(s). Review the diagnostics below.`,'warn');
+    }else{
+      setStatus(`Extraction completed in ${elapsed}s: ${extracted.items.length} item(s) detected.`,`ok`);
+    }
+  }catch(err){
+    console.error(err);
+    setStatus(`Extraction failed: ${err.message||err}`,'bad');
+  }finally{
+    $('extractBtn').disabled=!selectedFiles.length;
+    $('exportBtn').disabled=!extracted.items.length;
+    $('csvBtn').disabled=!extracted.items.length;
+    $('jsonBtn').disabled=!extracted.items.length;
+    $('printBtn').disabled=!extracted.items.length;
+    setStats();
+  }
+});
+
+/* ----------------------------- Render editable table ----------------------------- */
+function renderItems(){
+  const search=$('searchBox').value.toLowerCase().trim();
+  const ff=$('fileFilter').value;
+  const visible=extracted.items.filter(r=>{
+    const blob=CONFIG.fields.map(k=>r[k]).join(' ').toLowerCase();
+    return (!search||blob.includes(search)) && (!ff||r['Source PDF']===ff);
+  });
+
+  const cols=CONFIG.fields;
+  let html='<thead><tr>'+cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('')+'</tr></thead><tbody>';
+
+  for(const r of visible){
+    html+='<tr>';
+    for(const c of CONFIG.fields){
+      const val=r[c] ?? '';
+      const cls=(c==='Quantity'||c==='Unit Price'||c==='Total Base Value'||c==='Total Value')?'numeric':'';
+      html+=`<td class="${cls}" contenteditable="true" data-key="${escapeHtml(c)}" data-item-id="${extracted.items.indexOf(r)}">${escapeHtml(val)}</td>`;
+    }
+    html+='</tr>';
+  }
+  html+='</tbody>';
+  $('itemsTable').innerHTML=html;
+
+  $('itemsTable').querySelectorAll('td[contenteditable="true"]').forEach(td=>{
+    td.addEventListener('input',()=>{
+      const idx=Number(td.dataset.itemId);
+      extracted.items[idx][td.dataset.key]=td.textContent.trim();
+      applyExtractionDiagnostics();
+      setTimeout(renderItems,0);
+      setStats();
+    });
+  });
+}
+
+function renderHeaders(){
+  const keys=[...new Set(extracted.headers.flatMap(h=>Object.keys(h)))];
+  const rows=keys.map(k=>[k,...extracted.headers.map(h=>h[k]||'')]);
+  const heads=['Field',...extracted.headers.map(h=>h['Source PDF']||'PDF')];
+  $('headerTable').innerHTML='<thead><tr>'+heads.map(x=>`<th>${escapeHtml(x)}</th>`).join('')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr>'+r.map(x=>`<td contenteditable="true">${escapeHtml(x)}</td>`).join('')+'</tr>').join('')+
+    '</tbody>';
+}
+
+function renderServiceSummary(){
+  const rows=extracted.serviceSummaries||[];
+  $('serviceSummaryCard').style.display=rows.length?'block':'none';
+  if(!rows.length) return;
+  const cols=Object.keys(rows[0]);
+  $('serviceSummaryTable').innerHTML='<thead><tr>'+cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+cols.map(c=>`<td contenteditable="true">${escapeHtml(r[c]||'')}</td>`).join('')+'</tr>').join('')+'</tbody>';
+}
+
+function renderDiagnostics(){
+  const warnings=extracted.warnings||[];
+  $('validationSummary').className='status '+(warnings.length?'warn':'ok');
+  $('validationSummary').textContent=warnings.length
+    ? `${warnings.length} extraction warning(s) found. See details and suggested solutions below.`
+    : 'Extraction completed successfully. No extraction warnings were detected.';
+
+  const box=$('diagnosticBox');
+  if(warnings.length){
+    box.innerHTML='<div style="overflow:auto"><table><thead><tr><th>Type</th><th>PDF</th><th>Page</th><th>Item</th><th>Field</th><th>Problem</th><th>Suggested solution</th></tr></thead><tbody>'+
+      warnings.map(w=>`<tr><td>${escapeHtml(w.type)}</td><td>${escapeHtml(w.file)}</td><td>${escapeHtml(w.page)}</td><td>${escapeHtml(w.item)}</td><td>${escapeHtml(w.field)}</td><td>${escapeHtml(w.message)}</td><td>${escapeHtml(w.solution)}</td></tr>`).join('')+
+      '</tbody></table></div>';
+  } else {
+    box.innerHTML='<div class="status ok">No extraction warnings.</div>';
+  }
+  $('diagnosticMethod').textContent =
+`Method: PDF.js text extraction + PDF coordinate/column analysis
+OCR: disabled (source requirement: selectable/searchable PDFs)
+Table: automatic table-heading detection
+Rows: Sr. No. + Item Code detection
+Commercial values: direct extraction from printed PDF columns; no calculations
+Service Orders: SERVICE CODE is mapped to Item Code; TOTAL PRICE is mapped to Total Value; the order-level Completion Date is copied to Delivery Schedule for the detailed service rows
+Service Order summary: top-level service summary is preserved in a separate Service Summary worksheet
+Description: short and long description retained as text; semicolon separators preserved
+Excel: Items + separate PO Headers worksheet; borders, autofilter and autofit widths
+Files processed: ${selectedFiles.length}
+Items: ${extracted.items.length}`;
+}
+
+function renderAll(){
+  $('previewCard').style.display=extracted.items.length?'block':'none';
+  $('headerCard').style.display=extracted.headers.length?'block':'none';
+  $('validationCard').style.display='block';
+
+  const current=$('fileFilter').value;
+  $('fileFilter').innerHTML='<option value="">All PDFs</option>'+
+    [...new Set(extracted.items.map(r=>r['Source PDF']))].map(f=>`<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+  if([...$('fileFilter').options].some(o=>o.value===current)) $('fileFilter').value=current;
+
+  renderItems(); renderHeaders(); renderServiceSummary(); renderDiagnostics(); setStats();
+}
+$('searchBox').addEventListener('input',renderItems);
+$('fileFilter').addEventListener('change',renderItems);
+
+/* ----------------------------- Excel export ----------------------------- */
+function styleSheet(ws, rows){
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  const widths=[];
+  for(let c=range.s.c;c<=range.e.c;c++){
+    let max=10;
+    for(let r=range.s.r;r<=range.e.r;r++){
+      const cell=ws[XLSX.utils.encode_cell({r,c})];
+      const v=cell?.v==null?'':String(cell.v);
+      max=Math.max(max,Math.min(60,v.length+2));
+    }
+    widths.push({wch:max});
+  }
+  ws['!cols']=widths;
+  ws['!autofilter']={ref:ws['!ref']};
+  ws['!freeze']={xSplit:0,ySplit:1};
+  // SheetJS Community Edition does not reliably persist all visual styles
+  // across every Excel version; borders are applied through cell style objects.
+  for(let r=range.s.r;r<=range.e.r;r++){
+    for(let c=range.s.c;c<=range.e.c;c++){
+      const addr=XLSX.utils.encode_cell({r,c});
+      const cell=ws[addr];
+      if(!cell) continue;
+      cell.s=cell.s||{};
+      cell.s.border={
+        top:{style:'thin',color:{rgb:'334155'}},
+        bottom:{style:'thin',color:{rgb:'334155'}},
+        left:{style:'thin',color:{rgb:'334155'}},
+        right:{style:'thin',color:{rgb:'334155'}}
+      };
+      cell.s.alignment={vertical:'top',wrapText:true};
+      if(r===0) cell.s.font={bold:true};
+    }
+  }
+}
+function makeItemRows(){
+  return extracted.items.map(r=>{
+    const o={};
+    for(const k of CONFIG.fields) o[k]=r[k]??'';
+    return o;
+  });
+}
+function makeHeaderRows(){
+  return extracted.headers.map(h=>{
+    const o={};
+    for(const k of Object.keys(h)) o[k]=h[k]??'';
+    return o;
+  });
+}
+function addSheet(wb, data, name){
+  const ws=XLSX.utils.json_to_sheet(data);
+  styleSheet(ws,data);
+  XLSX.utils.book_append_sheet(wb,ws,uniqueSheetName(wb,name));
+}
+function buildWorkbook(){
+  const wb=XLSX.utils.book_new();
+  wb.Props={Title:'PDF Table Extraction',Subject:'Extracted purchase order data',Author:'PDF Table Extractor'};
+  addSheet(wb,makeItemRows(),'Items');
+  addSheet(wb,makeHeaderRows(),'PO Headers');
+  if((extracted.serviceSummaries||[]).length) addSheet(wb,extracted.serviceSummaries,'Service Summary');
+
+  const diag=extracted.diagnostics.flatMap(d=>d.warnings.map(w=>({'Source PDF':d.file,'Warning':w})));
+  if(!diag.length) diag.push({'Source PDF':'','Warning':'No extraction warnings.'});
+  addSheet(wb,diag,'Diagnostics');
+  return wb;
+}
+$('exportBtn').addEventListener('click',()=>{
+  const wb=buildWorkbook();
+  // Build the file ourselves and hand it to the same download path CSV/JSON
+  // use, rather than XLSX.writeFile()'s own internal download handling,
+  // which behaves inconsistently across browsers/contexts.
+  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  downloadBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`PDF_Extracted_${new Date().toISOString().slice(0,10)}.xlsx`);
+});
+
+/* ----------------------------- CSV / JSON / Print ----------------------------- */
+$('csvBtn').addEventListener('click',()=>{
+  const rows=makeItemRows();
+  const ws=XLSX.utils.json_to_sheet(rows);
+  const csv=XLSX.utils.sheet_to_csv(ws);
+  downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),'PDF_Extracted_Items.csv');
+});
+$('jsonBtn').addEventListener('click',()=>{
+  const payload={headers:extracted.headers,items:extracted.items,diagnostics:extracted.diagnostics};
+  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),'PDF_Extracted_Data.json');
+});
+$('printBtn').addEventListener('click',()=>{
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><title>Extracted PDF Table</title><style>
+  body{font-family:Arial;font-size:9px}table{border-collapse:collapse;width:100%}
+  th,td{border:1px solid #333;padding:4px;vertical-align:top}th{background:#eee}
+  </style></head><body><h3>Extracted PDF Table</h3>${$('itemsTable').outerHTML}</body></html>`);
+  w.document.close();w.focus();w.print();
+});
+
+/* ----------------------------- Clear ----------------------------- */
+$('clearBtn').addEventListener('click',()=>{
+  selectedFiles=[]; extracted={items:[],headers:[],diagnostics:[],serviceSummaries:[]};
+  $('pdfInput').value='';$('fileList').innerHTML='';
+  $('previewCard').style.display='none';$('headerCard').style.display='none';$('serviceSummaryCard').style.display='none';$('validationCard').style.display='none';
+  $('extractBtn').disabled=true;$('exportBtn').disabled=true;$('csvBtn').disabled=true;$('jsonBtn').disabled=true;$('printBtn').disabled=true;
+  $('pagesStat').textContent='0';$('itemsStat').textContent='0';$('filesStat').textContent='0';$('warningsStat').textContent='0';
+  setStatus('Select one or more PDF files.');
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF Merger with Index</title>
+<script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+<style>
+*{box-sizing:border-box} body{margin:0;height:100vh;font-family:"Segoe UI",Arial,sans-serif;background:#f7f3f8;color:#403946;padding:20px;overflow:hidden}
+.app{height:100%;max-width:1500px;margin:auto;background:#fff;border:2px solid #d9cfe0;border-radius:20px;padding:24px 28px;box-shadow:0 8px 25px rgba(0,0,0,.08);
+  display:flex;flex-direction:column;overflow:hidden}
+h1{text-align:center;color:#5c4b66;margin:0 0 4px}.sub{text-align:center;color:#777;margin-bottom:18px}
+.layout{flex:1;min-height:0;display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:28px}
+.left{overflow-y:auto;padding-right:4px}
+.right{display:flex;flex-direction:column;min-height:0}
+.drop{border:2px dashed #b8a7c5;background:#f3eafa;border-radius:16px;padding:32px 18px;text-align:center;cursor:pointer;transition:.2s;margin-bottom:16px}.drop:hover,.drop.over{background:#e7f2ec;border-color:#6e9c82}
+.controls{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:20px}button{border:0;border-radius:10px;padding:11px 16px;cursor:pointer;font-size:14px;transition:.2s;box-shadow:0 3px 7px #0001}button:hover{transform:translateY(-2px);filter:brightness(.92)}button:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.add{background:#dceefc}.clear{background:#f9dddd}.merge{background:#dcefdc;font-weight:700;font-size:15px;width:100%}
+h2{font-size:19px;color:#5c4b66;margin:0 0 6px}
+.note{font-size:13px;color:#7a7080;margin:0 0 12px}
+.list-wrap{flex:1;min-height:0;overflow-y:auto;border:1px solid #ede6f0;border-radius:14px;padding:10px;background:#fdfcfe}
+.list{display:flex;flex-direction:column;gap:9px}.empty{padding:25px;text-align:center;color:#999;background:#faf7fb;border:1px dashed #d7ccd9;border-radius:12px}
+.item{display:flex;align-items:center;gap:12px;padding:12px;background:#faf7fb;border:1px solid #e3dce7;border-radius:12px;cursor:grab;transition:background .2s,border-color .2s}.item.dragging{opacity:.45}
+.item.moved{background:#cbb9da;border-color:#9d84b3}.item.moved .num{background:#8f6ba8;color:#fff}
+.moved-tag{display:inline-block;margin-left:8px;padding:2px 7px;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#fff;background:#6e4c87;border-radius:6px;vertical-align:middle}
+.handle{font-size:22px;color:#806a8b;width:26px;text-align:center}.num{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#eadff0;font-weight:bold;flex:none;transition:background .2s,color .2s}.info{flex:1;min-width:0}.name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.size{font-size:12px;color:#888;margin-top:4px}.delete{background:#f8dcdc;padding:8px 12px;flex:none}
+.status{text-align:center;min-height:25px;margin-top:14px;font-weight:600}.ok{color:#39734b}.err{color:#b34747}.work{color:#6b5b88}
+@media(max-width:900px){
+  body{height:auto;overflow:auto}
+  .app{height:auto;padding:18px}
+  .layout{grid-template-columns:1fr;gap:18px}
+  .left{overflow-y:visible}
+  .list-wrap{max-height:60vh}
+}
+@media(max-width:650px){.item{flex-wrap:wrap}.delete{margin-left:auto}}
+</style></head><body><div class="app">
+<h1>📚 PDF Merger with Index</h1><div class="sub">Drag files to add them. Drag rows to change merge order.</div>
+<div class="layout">
+  <div class="left">
+    <div id="drop" class="drop"><div style="font-size:40px">📂</div><b>Drag & Drop PDF Files Here</b><div style="margin-top:7px;color:#777;font-size:14px">or click to select multiple PDFs</div></div>
+    <input id="input" type="file" accept=".pdf,application/pdf" multiple hidden>
+    <div class="controls"><button id="add" class="add">➕ Add PDF Files</button><button id="clear" class="clear">🗑 Clear All</button></div>
+    <button id="merge" class="merge">🔗 Create Indexed PDF</button>
+    <div id="status" class="status"></div>
+  </div>
+  <div class="right">
+    <h2>Merge Order</h2>
+    <div class="note">Files initially sort by prefixes such as 1_, 2_, 3_. You can then drag any row to a new position.</div>
+    <div class="list-wrap"><div id="list" class="list"><div class="empty">No PDF files added yet.</div></div></div>
+  </div>
+</div>
+</div><script src="script.js"></script></body></html>
