@@ -28,6 +28,11 @@ h1{margin:0 0 6px}.sub{color:var(--muted);margin-bottom:20px}
 .field{display:flex;flex-direction:column;gap:6px}
 input,select{padding:9px;border:1px solid var(--line);border-radius:8px}
 .check{display:flex;align-items:center;gap:8px;margin:7px 0}
+.analysisToggle{display:flex;align-items:center;gap:10px;margin:16px 0 0}
+.switch{position:relative;display:inline-block;width:46px;height:24px}.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;cursor:pointer;transition:.2s}
+.slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.switch input:checked+.slider{background:var(--accent)}.switch input:checked+.slider:before{transform:translateX(22px)}
 button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:pointer;margin-right:8px}
 .primary{background:var(--accent);color:#fff}.secondary{background:#e9eef4}.success{background:#4f8b6d;color:#fff}
 #status{white-space:pre-line;background:#eef4fa;padding:12px;border-radius:8px;display:none;margin-top:12px}
@@ -38,7 +43,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 #analysis th{background:#f2f5f8}
 #progress{width:100%;height:12px;display:none}
 .previewHost{position:absolute;left:-100000px;top:0;background:#fff}
-.previewControls{display:grid;grid-template-columns:2fr repeat(4,minmax(110px,1fr)) auto;gap:10px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0 14px}.previewControls .field{gap:4px}.previewControls label{font-size:12px;font-weight:700}.previewControls input,.previewControls select{padding:7px}.previewControls .radioGroup{display:flex;gap:12px;align-items:center;min-height:33px;padding:0 4px}.previewControls .radioGroup label{font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}.previewControls .radioGroup input{margin:0;padding:0}.previewApply button{margin:0;width:100%;padding:8px}
+.previewControls{display:grid;grid-template-columns:2fr repeat(4,minmax(110px,1fr)) auto;gap:10px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0 14px}.previewControls .field{gap:4px}.previewControls label{font-size:12px;font-weight:700}.previewControls input,.previewControls select{padding:7px}.previewControls .radioGroup{display:flex;gap:12px;align-items:center;min-height:33px;padding:0 4px}.previewControls .radioGroup label{font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}.analysisRadios{display:flex;gap:8px;align-items:center}.analysisRadios label{font-size:12px;display:flex;align-items:center;gap:3px;white-space:nowrap}.analysisRadios input{margin:0;padding:0}.previewControls .radioGroup input{margin:0;padding:0}.previewApply button{margin:0;width:100%;padding:8px}
 .pdf-page{position:relative;background:#fff;overflow:hidden;page-break-after:always}
 .page-body{position:absolute;overflow:hidden}
 .home{position:absolute;right:10px;top:8px;background:#d96915;color:white;padding:4px 10px;border-radius:5px;font:700 9pt Arial;z-index:5}
@@ -82,6 +87,8 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
     <progress id="progress" value="0" max="100"></progress>
     <div id="status"></div>
   </div>
+
+  <div class="analysisToggle"><label class="switch"><input id="showAnalysis" type="checkbox"><span class="slider"></span></label><b>Show Worksheet Layout Analysis</b><span class="small">Hidden by default</span></div>
 
   <div id="analysisCard" class="card c3 hidden">
     <h3>Worksheet Layout Analysis</h3>
@@ -292,7 +299,7 @@ function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetName
     paper:ps?.paper||(wideImage?"A3":"A4"),
     orientation:ps?.orientation==="landscape"?"landscape":ps?.orientation==="portrait"?"portrait":(wideImage?"landscape":"portrait"),
     font:opt.pref,headers:0,previewSet:!!ps,imageOnly:true};
-}const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,images:imgs.length,headers:+$("headerRows").value||autoHeader(ws,d),previewSet:!!x.previewSet}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td>${x.images||0}</td><td><span class="small" style="font-weight:700;color:${x.previewSet?"#16803c":"#777"}">${x.previewSet?"YES — Excel preview settings":"NO — Automatic"}</span></td><td><select class="paper" data-i="${x.i}"><option ${x.paper==="A4"?"selected":""}>A4</option><option ${x.paper==="A3"?"selected":""}>A3</option></select></td><td><select class="orient" data-i="${x.i}"><option value="portrait" ${x.orientation==="portrait"?"selected":""}>Portrait</option><option value="landscape" ${x.orientation==="landscape"?"selected":""}>Landscape</option></select></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="number" value="${x.headers}" min="0" max="20" style="width:65px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{const u=()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()};el.addEventListener("input",u);el.addEventListener("change",u)});$("analysisCard").classList.remove("hidden");$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Sheets marked "YES — Excel preview settings" use detected Excel page setup; all others use automatic layout.`)}
+}const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,images:imgs.length,headers:+$("headerRows").value||autoHeader(ws,d),previewSet:!!x.previewSet}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td>${x.images||0}</td><td><span class="small" style="font-weight:700;color:${x.previewSet?"#16803c":"#777"}">${x.previewSet?"YES — Excel preview settings":"NO — Automatic"}</span></td><td><div class="radioGroup analysisRadios"><label><input type="radio" name="paper_${x.i}" class="paper" data-i="${x.i}" value="A3" ${x.paper==="A3"?"checked":""}>A3</label><label><input type="radio" name="paper_${x.i}" class="paper" data-i="${x.i}" value="A4" ${x.paper==="A4"?"checked":""}>A4</label></div></td><td><div class="radioGroup analysisRadios"><label><input type="radio" name="orient_${x.i}" class="orient" data-i="${x.i}" value="portrait" ${x.orientation==="portrait"?"checked":""}>Portrait</label><label><input type="radio" name="orient_${x.i}" class="orient" data-i="${x.i}" value="landscape" ${x.orientation==="landscape"?"checked":""}>Landscape</label></div></td></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="number" value="${x.headers}" min="0" max="20" style="width:65px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{const u=()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);syncPreviewControls();schedulePreview()};el.addEventListener("input",u);el.addEventListener("change",u)});$("analysisCard").classList.add("hidden");$("showAnalysis").checked=false;$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Sheets marked "YES — Excel preview settings" use detected Excel page setup; all others use automatic layout.`)}
 let previewTimer=null;
 function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(renderPreview,120)}
 function syncPreviewControls(){
@@ -315,6 +322,15 @@ function updatePreviewSheetFromScroll(){
     if(sel.value!==best.dataset.sheetIndex){sel.value=best.dataset.sheetIndex;syncPreviewControls()}
   }
 }
+function syncAnalysisRow(x){
+  const rows=Array.from(document.querySelectorAll('#analysis tbody tr'));
+  const row=rows.find(r=>r.children[0]?.textContent===String(x.i+1));if(!row)return;
+  row.querySelectorAll('.paper').forEach(r=>r.checked=r.value===x.paper);
+  row.querySelectorAll('.orient').forEach(r=>r.checked=r.value===x.orientation);
+  const font=row.querySelector('.font');if(font)font.value=x.font;
+  const hdr=row.querySelector('.hdr');if(hdr)hdr.value=x.headers;
+}
+function syncAnalysisFromResults(){results.forEach(syncAnalysisRow)}
 function applyPreviewControls(){
   const x=results.find(r=>r.i===+$("previewSheet").value);if(!x)return;
   const paper=document.querySelector('input[name="previewPaper"]:checked');
@@ -322,7 +338,9 @@ function applyPreviewControls(){
   if(paper)x.paper=paper.value;
   if(orient)x.orientation=orient.value;
   x.font=Math.max(5,Math.min(20,+$("previewFont").value||10));
-  x.headers=Math.max(0,Math.min(20,+$("previewHeaders").value||0));schedulePreview();
+  x.headers=Math.max(0,Math.min(20,+$("previewHeaders").value||0));
+  syncAnalysisRow(x);
+  schedulePreview();
 }
 function resetPreviewSheet(){
   const x=results.find(r=>r.i===+$("previewSheet").value);if(!x)return;
@@ -337,7 +355,7 @@ function populatePreviewSheets(){
   if(current&&results.some(x=>!x.empty&&String(x.i)===current))sel.value=current;syncPreviewControls();
 }
 function renderPreview(){
-  if(!wb||!results.length)return;populatePreviewSheets();
+  if(!wb||!results.length)return;populatePreviewSheets();syncAnalysisFromResults();
   const opt=getOpt(),host=$("previewPages");host.innerHTML="";const renderHost=$("renderHost");renderHost.innerHTML="";
   let no=opt.index?2:1,starts=[],all=[];
   for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const pages=buildSheet(x,opt,no);pages.forEach(p=>{
@@ -383,6 +401,7 @@ $("previewSheet").onchange=()=>{syncPreviewControls();schedulePreview();};
 document.querySelectorAll('input[name="previewPaper"],input[name="previewOrient"]').forEach(el=>el.addEventListener("change",applyPreviewControls));
 ["previewFont","previewHeaders"].forEach(id=>$(id).addEventListener("input",applyPreviewControls));
 $("previewReset").onclick=resetPreviewSheet;
+$("showAnalysis").onchange=()=>$("analysisCard").classList.toggle("hidden",!$("showAnalysis").checked);
 $("previewPages").addEventListener("scroll",()=>{clearTimeout(window.__previewScrollTimer);window.__previewScrollTimer=setTimeout(updatePreviewSheetFromScroll,50)});
 window.addEventListener("resize",updatePreviewSheetFromScroll);
 ["prefFont","minFont","margin","headerRows","showFilename","index","home"].forEach(id=>$(id).addEventListener("input",()=>{if(wb){if(id==="headerRows")analyseWorkbook();else schedulePreview()}}));
