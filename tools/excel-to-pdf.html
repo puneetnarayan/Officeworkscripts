@@ -51,7 +51,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .footer-left{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.footer-right{right:0}
 .sheet-name{font-weight:700;margin-bottom:7px}
 .excel-table{border-collapse:collapse;table-layout:fixed;width:100%}
-.excel-table td,.excel-table th{border:1px solid #555;padding:3px 5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;background-clip:padding-box}
+.excel-table td,.excel-table th{border:1px solid #555;padding:3px 5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;background-clip:padding-box}.excel-table tr{break-inside:avoid;page-break-inside:avoid}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
 .small{font-size:12px;color:var(--muted)}
@@ -268,9 +268,26 @@ function cssCell(cell,sheetName,row,col){const s=getExactStyle(cell,sheetName,ro
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function makeTable(ws,d,start,end,font,scale){
   const table=document.createElement("table");table.className="excel-table";
-  table.style.fontSize=font+"pt";table.style.width="100%";table.style.maxWidth="100%";
-  if(scale<1){table.style.transform=`scale(${scale})`;table.style.transformOrigin="top left";table.style.width=(100/scale)+"%";table.style.maxWidth=(100/scale)+"%"}
-  let cg=document.createElement("colgroup"),arr=autoFitColWidths(ws,d),total=arr.reduce((a,b)=>a+b,0);arr.forEach(w=>{const col=document.createElement("col");col.style.width=(w/Math.max(1,total)*100)+"%";cg.appendChild(col)});table.appendChild(cg);const mm=mergedMap(ws);for(let r=start;r<=end;r++){const tr=document.createElement("tr");tr.style.minHeight=Math.max(14,rowPt(ws,r)*.75)+"pt";for(let c=d.r.s.c;c<=d.r.e.c;c++){if(mm.covered.has(`${r}:${c}`))continue;const td=document.createElement("td"),cell=ws[XLSX.utils.encode_cell({r,c})];td.innerHTML=esc(cell?(cell.w??cell.v??""):"");td.style.cssText=cssCell(cell,ws.__sheetName||"",r,c);const z=mm.m.get(`${r}:${c}`);if(z){td.rowSpan=z.rs;td.colSpan=z.cs}tr.appendChild(td)}table.appendChild(tr)}return table}
+  table.style.fontSize=font+"pt";table.style.width="auto";table.style.maxWidth="none";table.style.breakInside="avoid";table.style.pageBreakInside="avoid";
+  const arr=autoFitColWidths(ws,d),total=arr.reduce((a,b)=>a+b,0)||1;
+  table.style.width=total+"px";
+  if(scale<1){table.style.transform=`scale(${scale})`;table.style.transformOrigin="top left"}
+  let cg=document.createElement("colgroup");
+  arr.forEach(w=>{const col=document.createElement("col");col.style.width=w+"px";col.style.minWidth=w+"px";col.style.maxWidth=w+"px";cg.appendChild(col)});
+  table.appendChild(cg);
+  const mm=mergedMap(ws);
+  for(let r=start;r<=end;r++){
+    const tr=document.createElement("tr");tr.style.minHeight=Math.max(14,rowPt(ws,r)*.75)+"pt";tr.style.breakInside="avoid";tr.style.pageBreakInside="avoid";
+    for(let c=d.r.s.c;c<=d.r.e.c;c++){
+      if(mm.covered.has(`${r}:${c}`))continue;
+      const td=document.createElement("td"),cell=ws[XLSX.utils.encode_cell({r,c})];
+      td.innerHTML=esc(cell?(cell.w??cell.v??""):"");td.style.cssText=cssCell(cell,ws.__sheetName||"",r,c);
+      const z=mm.m.get(`${r}:${c}`);if(z){td.rowSpan=z.rs;td.colSpan=z.cs}tr.appendChild(td)
+    }
+    table.appendChild(tr)
+  }
+  return table
+}
 function pageDiv(sz,margin,footer,pageNo,home){const page=document.createElement("div");page.style.boxSizing="border-box";page.className="pdf-page";page.style.width=sz.w+"pt";page.style.height=sz.h+"pt";const body=document.createElement("div");body.className="page-body";body.style.left=margin+"pt";body.style.top=margin+"pt";body.style.width=(sz.w-2*margin)+"pt";body.style.height=(sz.h-2*margin-32)+"pt";page.appendChild(body);const fl=document.createElement("div");fl.className="footer-left";fl.style.left=margin+"pt";fl.style.width=(sz.w-2*margin-95)+"pt";fl.textContent=footer;page.appendChild(fl);const fr=document.createElement("div");fr.className="footer-right";fr.style.right=margin+"pt";fr.textContent="Page "+pageNo;page.appendChild(fr);if(home){const h=document.createElement("div");h.className="home";h.textContent="HOME";page.appendChild(h)}return{page,body}}
 function imageEl(img){const el=document.createElement("img");el.src=img.src;el.alt="Excel image";el.style.maxWidth="100%";el.style.maxHeight="100%";el.style.objectFit="contain";return el}
 function buildImageOnlySheet(x,opt,startNo){
@@ -307,11 +324,12 @@ function estimatedRowHeight(ws,d,r,font){
   for(let c=d.r.s.c;c<=d.r.e.c;c++){
     const cell=ws[XLSX.utils.encode_cell({r,c})];
     const raw=String(cell?(cell.w??cell.v??""):"");
-    const charsPerLine=Math.max(4,Math.floor((widths[c-d.r.s.c]||60)/(Math.max(5,font)*.62)));
+    const width=Math.max(28,(widths[c-d.r.s.c]||60)-10);
+    const charsPerLine=Math.max(3,Math.floor(width/(Math.max(5,font)*.62)));
     const lines=raw.split(/\r?\n/).reduce((n,line)=>n+Math.max(1,Math.ceil(line.length/charsPerLine)),0);
     maxLines=Math.max(maxLines,lines);
   }
-  return Math.max(rowPt(ws,r)*.75,Math.min(160,maxLines*font*1.35+8));
+  return Math.max(rowPt(ws,r)*.75,Math.min(220,maxLines*font*1.42+10));
 }
 function buildSheet(x,opt,startNo){
   const ws=wb.Sheets[x.name],d=dims(ws),images=SHEET_IMAGES.get(x.name)||[];
@@ -326,11 +344,11 @@ function buildSheet(x,opt,startNo){
   while(cur<=end){
     let used=0;
     if(!first&&hdr){
-      for(let r=hdr.start;r<=hdr.end;r++)used+=estimatedRowHeight(ws,d,r,x.font);
+      for(let r=hdr.start;r<=hdr.end;r++)used+=estimatedRowHeight(ws,d,r,x.font)*scale*1.12;
     }
     const a=cur;
     while(cur<=end){
-      const h=estimatedRowHeight(ws,d,cur,x.font);
+      const h=estimatedRowHeight(ws,d,cur,x.font)*scale*1.12;
       if(cur>a&&used+h>usable)break;
       used+=h;cur++;
     }
