@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Excel to PDF Converter v17</title>
+
+<!-- v17: PDF capture uses one consistent CSS-pixel coordinate system, PNG capture, exact DOM dimensions, and guarded pagination. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<style>
+:root{
+  --bg:#f4f7fb; --card:#fff; --ink:#263238; --muted:#6b7280;
+  --accent:#e8751a; --accent2:#f3a35c; --line:#d9e0e8;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:linear-gradient(135deg,#f7fafc,#edf3f8);color:var(--ink)}
+.app{max-width:1900px;margin:auto;padding:20px}
+h1{margin:0 0 6px}.sub{color:var(--muted);margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin:16px 0;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.drop{border:2px dashed #b6c2d0;border-radius:14px;padding:34px;text-align:center;background:#fbfdff;cursor:pointer}
+.drop.drag{border-color:var(--accent);background:#fff7ef}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+input,select{padding:9px;border:1px solid var(--line);border-radius:8px}
+.check{display:flex;align-items:center;gap:8px;margin:7px 0}
+button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:pointer;margin-right:8px}
+.primary{background:var(--accent);color:#fff}.secondary{background:#e9eef4}.success{background:#4f8b6d;color:#fff}
+#status{white-space:pre-line;background:#eef4fa;padding:12px;border-radius:8px;display:none;margin-top:12px}
+#status.show{display:block}.hidden{display:none!important}
+.tablewrap{overflow:auto;max-height:440px}
+#analysis{border-collapse:collapse;width:100%;min-width:850px}
+#analysis th,#analysis td{border:1px solid var(--line);padding:8px;font-size:13px}
+#analysis th{background:#f2f5f8}
+
+/* v16 sidebar layout: keep the controls narrow and compact so the preview
+   (where a person is actually dragging column boundaries) gets the width. */
+.layout{display:flex;gap:16px;align-items:flex-start}
+.sidebar{width:300px;flex:none;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+.main{flex:1;min-width:0}
+@media (max-width:860px){.layout{flex-direction:column}.sidebar{width:100%;position:static;max-height:none}}
+.sidebar h1{font-size:19px;margin-bottom:3px}
+.sidebar .sub{font-size:11.5px;margin-bottom:12px;line-height:1.4}
+.sidebar .card{padding:13px;margin:10px 0;border-radius:12px}
+.sidebar .drop{padding:18px 10px}
+.sidebar .drop b{font-size:13px}
+.sidebar .grid{grid-template-columns:repeat(2,1fr);gap:9px}
+.sidebar .field{gap:3px}
+.sidebar .field label{font-size:11px}
+.sidebar input,.sidebar select{padding:6px;font-size:12.5px}
+.sidebar .check{font-size:11.5px;gap:6px;margin:5px 0;align-items:flex-start;line-height:1.35}
+.sidebar .check input{margin-top:2px}
+.sidebar button{padding:8px 14px;font-size:12.5px}
+.sidebar #status{font-size:12px;padding:9px}
+.sidebar .small{font-size:11px}
+.toggleBtn{width:100%;display:flex;align-items:center;justify-content:space-between;background:#eef4fa;color:var(--ink);border:1px solid var(--line);padding:8px 12px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;margin:0}
+.toggleBtn:hover{background:#e4edf6}
+.toggleBtn .arrow{transition:transform .15s;font-size:10px}
+.toggleBtn.open .arrow{transform:rotate(90deg)}
+.analysisBody{margin-top:10px}
+.sidebar .tablewrap{max-height:260px}
+.sidebar #analysis{min-width:0;width:max-content}
+.sidebar #analysis th,.sidebar #analysis td{padding:4px 6px;font-size:10.5px}
+.sidebar #analysis input,.sidebar #analysis select{padding:3px;font-size:10.5px}
+.main .card{padding:14px 16px}
+.main h3{margin-top:0}
+#progress{width:100%;height:12px;display:none}
+.previewHost{position:absolute;left:-100000px;top:0;background:#fff}
+.pdf-page{position:relative;background:#fff;overflow:hidden;page-break-after:always}
+.page-body{position:absolute;overflow:hidden}
+.home{position:absolute;right:10px;top:8px;background:#d96915;color:white;padding:4px 10px;border-radius:5px;font:700 9pt Arial;z-index:5}
+.footer-left,.footer-right{position:absolute;bottom:9px;font:10pt Arial;color:#333}
+.footer-left{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.footer-right{right:0}
+.sheet-name{font-weight:700;margin-bottom:7px}
+.excel-table{border-collapse:collapse;table-layout:fixed;width:100%;font-family:Arial,Helvetica,sans-serif}
+.excel-table td,.excel-table th{border:1px solid #555;padding:3px 5px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;background-clip:padding-box}
+.index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
+.index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
+.small{font-size:12px;color:var(--muted)}
+
+.index-title{text-align:center;margin:0 0 8pt}.index-filename{text-align:center;font-weight:700;font-size:12pt;margin-bottom:12pt}.index-instruction{text-align:center;color:#6aaee8;font-size:9pt;margin-bottom:12pt}.index-table a{color:#66aee8;text-decoration:underline;font-weight:600}.index-timestamp{position:absolute;left:54pt;right:54pt;bottom:24pt;text-align:center;font-size:9pt;color:#555}.previewPages{display:flex;flex-direction:column;gap:18px;align-items:center;max-height:calc(100vh - 220px);overflow:auto;padding:12px;background:#eef4fa;border-radius:10px}.previewPages .pdf-page{box-shadow:0 3px 12px rgba(0,0,0,.16);flex:none;transform-origin:top center}.previewTag{position:absolute;right:10pt;top:8pt;background:#d9efff;color:#2b75a5;padding:3pt 6pt;border-radius:4pt;font:700 7pt Arial}.previewPages .index-page{zoom:.72}.previewPages .pdf-page:not(.index-page){zoom:.72}
+.sheetResetRow{width:100%;display:flex;justify-content:center}
+.sheetResetBtn{background:#fff;border:1px solid var(--line);color:var(--muted);font-size:11px;padding:5px 12px;border-radius:20px;font-weight:600;margin:0}
+.sheetResetBtn:hover{color:var(--ink);border-color:#b9c4d0}
+.colResizeOverlay{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.colResizeHandle{position:absolute;top:0;bottom:0;width:9px;margin-left:-4.5px;cursor:col-resize;pointer-events:auto;z-index:6}
+.colResizeHandle::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(35,48,71,.18);transition:background .1s}
+.colResizeHandle.edge::after{background:rgba(35,48,71,.35)}
+.colResizeHandle:hover,.colResizeHandle.active{background:rgba(232,117,26,.4)}
+.colResizeHandle:hover::after,.colResizeHandle.active::after{background:rgba(232,117,26,.9)}
+.colResizeHandle.edge[data-dir="left"]{margin-left:0}
+.colResizeHandle.edge[data-dir="right"]{margin-left:-9px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="layout">
+    <div class="sidebar">
+      <h1>Smart Excel to PDF Converter v17</h1>
+      <div class="sub">Automatic workbook analysis, live PDF preview, drag-to-resize columns, repeated headers, Excel colour/style preservation, TOC and navigation.</div>
+
+      <div class="card">
+        <div id="drop" class="drop">
+          <b>Drop Excel file here</b><br><span class="small">or click to browse (.xlsx, .xls, .xlsm)</span>
+          <input id="file" type="file" accept=".xlsx,.xls,.xlsm" hidden>
+        </div>
+        <div id="fileInfo" class="small" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <div class="grid">
+          <div class="field"><label>Preferred font size (pt)</label><input id="prefFont" type="number" value="10" min="6" max="20"></div>
+          <div class="field"><label>Minimum readable font (pt)</label><input id="minFont" type="number" value="7" min="5" max="18"></div>
+          <div class="field"><label>Margin (min 0.75 in)</label><input id="margin" type="number" value="0.75" min="0.75" step="0.05"></div>
+          <div class="field"><label>Header rows (0 = auto)</label><input id="headerRows" type="number" value="0" min="0" max="20"></div>
+          <div class="field" style="grid-column:1/-1"><label>Output PDF name</label><input id="output" type="text" value="Excel_Output.pdf"></div>
+        </div>
+        <div class="check"><input id="showFilename" type="checkbox" checked><label for="showFilename">Show source filename in footer</label></div>
+        <div class="check"><input id="index" type="checkbox" checked><label for="index">Create Table of Contents / Index</label></div>
+        <div class="check"><input id="home" type="checkbox" checked><label for="home">HOME button linking to Index</label></div>
+        <div class="check"><input id="hiFiCapture" type="checkbox"><label for="hiFiCapture">High-fidelity capture (experimental) - renders each page via the browser's own engine instead of html2canvas's own text layout, which may fix garbled/overlapping text on some systems. Untested on most setups: if pages come out blank, uncheck this and regenerate.</label></div>
+        <div style="margin-top:12px"><button id="generate" class="success hidden">Generate &amp; Auto-Download PDF</button></div>
+        <progress id="progress" value="0" max="100"></progress>
+        <div id="status"></div>
+      </div>
+
+      <div id="analysisCard" class="card hidden">
+        <button id="analysisToggle" class="toggleBtn" type="button" aria-expanded="false">
+          <span>Worksheet Layout Analysis</span><span class="arrow">&#9656;</span>
+        </button>
+        <div id="analysisBody" class="analysisBody hidden">
+          <div class="small">Changes to Paper, Orientation, Font or Header rows update the preview automatically.</div>
+          <div class="tablewrap"><table id="analysis"><thead><tr><th>#</th><th>Worksheet</th><th>Rows</th><th>Cols</th><th>Paper</th><th>Orientation</th><th>Font</th><th>Header rows</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div id="previewCard" class="card hidden">
+        <h3>PDF Preview</h3>
+        <div class="small">Preview updates automatically. Hover a column boundary directly on a page below to drag-resize it - text re-wraps live as you drag, the change applies to every page of that sheet and to the downloaded PDF, and stays put (per sheet) until you reset it or load a new file. Check the second and later pages of a worksheet to verify repeated headers.</div>
+        <div id="previewInfo" class="small" style="margin:10px 0"></div>
+        <div id="previewPages" class="previewPages"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="renderHost" class="previewHost"></div>
+<script>
+"use strict";
+const { jsPDF } = window.jspdf;
+const PT=72;
+const PAPERS={A4:[8.27*PT,11.69*PT],A3:[11.69*PT,16.54*PT]};
+let wb=null,fileObj=null,results=[];
+let RAW_STYLE={fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
+// Manual column-width overrides from dragging in the preview, keyed "sheetName!colIndex" -> px.
+// Sticky per sheet: survives paper/orientation/font/header changes, cleared only on a new file load.
+let COL_OVERRIDES=new Map();
+const $=id=>document.getElementById(id);
+function status(t){$("status").textContent=t;$("status").classList.add("show")}
+function esc(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function rawKids(n,name){return Array.from(n?n.children:[]).filter(x=>x.localName===name)}
+function rawColor(n){if(!n)return null;const o={};["rgb","theme","indexed","tint","auto"].forEach(k=>{if(n.hasAttribute(k)){const v=n.getAttribute(k);o[k]=(k==="rgb"||k==="auto")?v:Number(v)}});return Object.keys(o).length?o:null}
+function rawTheme(xml){
+  const raw=[];
+  try{
+    const d=new DOMParser().parseFromString(xml,"application/xml");
+    const sc=Array.from(d.getElementsByTagNameNS("*","clrScheme"))[0];
+    if(!sc)return raw;
+    for(const x of Array.from(sc.children)){const c=x.children[0];const h=c&&(c.getAttribute("lastClr")||c.getAttribute("val"));raw.push(/^[0-9a-fA-F]{6}$/.test(h||"")?"#"+h:"")}
+  }catch(e){}
+  // The clrScheme XML stores colours as [dk1,lt1,dk2,lt2,accent1-6,hlink,folHlink],
+  // but a cell style's theme="N" attribute indexes them as [lt1,dk1,lt2,dk2,...] -
+  // swapped. Using raw document order here maps theme=0 (background) to black
+  // instead of white, producing invisible black-on-black text in real files.
+  const a=raw.slice();
+  if(raw.length>1){a[0]=raw[1];a[1]=raw[0]}
+  if(raw.length>3){a[2]=raw[3];a[3]=raw[2]}
+  return a;
+}
+async function loadExactStyles(buf){
+  RAW_STYLE={fonts:[],fills:[],borders:[],cellXfs:[],cellStyleIndex:new Map(),themeColors:[]};
+  if(!window.JSZip)return;
+  const z=await JSZip.loadAsync(buf);
+  const tf=z.file("xl/theme/theme1.xml");if(tf)RAW_STYLE.themeColors=rawTheme(await tf.async("text"));
+  const sf=z.file("xl/styles.xml");
+  if(sf){
+    const d=new DOMParser().parseFromString(await sf.async("text"),"application/xml"),root=d.documentElement;
+    const fonts=rawKids(rawKids(root,"fonts")[0],"font");
+    RAW_STYLE.fonts=fonts.map(f=>({bold:rawKids(f,"b").length>0,italic:rawKids(f,"i").length>0,underline:rawKids(f,"u").length>0,name:(rawKids(f,"name")[0]||{}).getAttribute?.("val"),sz:Number((rawKids(f,"sz")[0]||{}).getAttribute?.("val"))||undefined,color:rawColor(rawKids(f,"color")[0])}));
+    RAW_STYLE.fills=rawKids(rawKids(root,"fills")[0],"fill").map(f=>{const p=rawKids(f,"patternFill")[0];return {patternType:p?.getAttribute("patternType")||"none",fgColor:rawColor(p&&rawKids(p,"fgColor")[0]),bgColor:rawColor(p&&rawKids(p,"bgColor")[0])}});
+    RAW_STYLE.borders=rawKids(rawKids(root,"borders")[0],"border").map(b=>{const o={};["top","right","bottom","left"].forEach(k=>{const q=rawKids(b,k)[0];if(q)o[k]={style:q.getAttribute("style")||"",color:rawColor(rawKids(q,"color")[0])}});return o});
+    RAW_STYLE.cellXfs=rawKids(rawKids(root,"cellXfs")[0],"xf").map(x=>{const q=rawKids(x,"alignment")[0],a={};if(q)["horizontal","vertical","wrapText","textRotation","shrinkToFit"].forEach(k=>{if(q.hasAttribute(k)){const v=q.getAttribute(k);a[k]=(k==="wrapText"||k==="shrinkToFit")?["1","true"].includes(v):v}});return {fontId:+(x.getAttribute("fontId")||0),fillId:+(x.getAttribute("fillId")||0),borderId:+(x.getAttribute("borderId")||0),alignment:a,applyFill:x.getAttribute("applyFill")}});
+  }
+  const wf=z.file("xl/workbook.xml"),rf=z.file("xl/_rels/workbook.xml.rels");
+  if(wf&&rf){
+    const wd=new DOMParser().parseFromString(await wf.async("text"),"application/xml"),rd=new DOMParser().parseFromString(await rf.async("text"),"application/xml"),rel=new Map();
+    Array.from(rd.getElementsByTagNameNS("*","Relationship")).forEach(x=>rel.set(x.getAttribute("Id"),x.getAttribute("Target")));
+    for(const sh of Array.from(wd.getElementsByTagNameNS("*","sheet"))){const name=sh.getAttribute("name"),rid=sh.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id")||sh.getAttribute("r:id");let t=rel.get(rid)||"";if(!t)continue;t=t.startsWith("/")?t.slice(1):"xl/"+t.replace(/^\.\//,"");const f=z.file(t);if(!f)continue;const sd=new DOMParser().parseFromString(await f.async("text"),"application/xml");Array.from(sd.getElementsByTagNameNS("*","c")).forEach(c=>{const ref=c.getAttribute("r"),st=c.getAttribute("s");if(ref&&st!==null)RAW_STYLE.cellStyleIndex.set(name+"!"+ref,+st)})}
+  }
+}
+function normalizeArgb(hex){if(!hex||typeof hex!=="string")return"";hex=hex.replace(/^#/ ,"").trim();if(hex.length===8)hex=hex.slice(2);return /^[0-9a-fA-F]{6}$/.test(hex)?"#"+hex:""}
+function resolveThemeColor(i,tint){let c=RAW_STYLE.themeColors[Number(i)]||"";if(!c){const theme=["#FFFFFF","#000000","#EEECE1","#1F497D","#4F81BD","#C0504D","#9BBB59","#8064A2","#4BACC6","#F79646"];c=theme[Number(i)]||""}if(!c)return"";if(typeof tint==="number"&&tint!==0){const n=parseInt(c.slice(1),16);let rgb=[(n>>16)&255,(n>>8)&255,n&255];rgb=rgb.map(v=>Math.max(0,Math.min(255,Math.round(tint<0?v*(1+tint):v+(255-v)*tint))));c="#"+rgb.map(v=>v.toString(16).padStart(2,"0")).join("")}return c}
+function excelColorToCss(color){
+  if(!color||color.auto==="1"||color.auto===1)return"";
+  if(Number.isFinite(color.theme))return resolveThemeColor(color.theme,color.tint);
+  const rgb=normalizeArgb(color.rgb);if(rgb)return rgb;
+  const indexed={0:"#000000",1:"#FFFFFF",2:"#FF0000",3:"#00FF00",4:"#0000FF",5:"#FFFF00",6:"#FF00FF",7:"#00FFFF",8:"#000000",9:"#FFFFFF",10:"#FF0000",11:"#00FF00",12:"#0000FF",13:"#FFFF00",14:"#FF00FF",15:"#00FFFF",16:"#800000",17:"#008000",18:"#000080",19:"#808000",20:"#800080",21:"#008080",22:"#C0C0C0",23:"#808080",64:"",65:""};
+  return Number.isFinite(color.indexed)?(indexed[color.indexed]||""):"";
+}
+function getExactStyle(cell,sheetName,row,col){const ref=XLSX.utils.encode_cell({r:row,c:col});const idx=RAW_STYLE.cellStyleIndex.get(sheetName+"!"+ref);if(Number.isFinite(idx)&&RAW_STYLE.cellXfs[idx]){const x=RAW_STYLE.cellXfs[idx];return {font:RAW_STYLE.fonts[x.fontId]||{},fill:RAW_STYLE.fills[x.fillId]||{},border:RAW_STYLE.borders[x.borderId]||{},alignment:x.alignment||{},applyFill:x.applyFill}}return(cell&&cell.s&&typeof cell.s==="object")?cell.s:{}}
+function hasRealBorder(cell){const b=getExactStyle(cell,cell?.__sheetName||"",cell?.__row||0,cell?.__col||0).border||{};return ["top","right","bottom","left"].some(k=>b[k]?.style&&b[k].style!=="none")}
+function dims(ws){if(!ws||!ws["!ref"])return null;const base=XLSX.utils.decode_range(ws["!ref"]);let minR=Infinity,minC=Infinity,maxR=-1,maxC=-1;for(let r=base.s.r;r<=base.e.r;r++){for(let c=base.s.c;c<=base.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&(cell.v!==undefined||cell.f!==undefined||cell.w!==undefined)){minR=Math.min(minR,r);minC=Math.min(minC,c);maxR=Math.max(maxR,r);maxC=Math.max(maxC,c)}}}for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(a){minR=Math.min(minR,a.s.r);minC=Math.min(minC,a.s.c);maxR=Math.max(maxR,a.e.r);maxC=Math.max(maxC,a.e.c)}}if(maxR<0)return null;const r={s:{r:minR,c:minC},e:{r:maxR,c:maxC}};return{r,rows:maxR-minR+1,cols:maxC-minC+1}}
+function colPx(ws,c){const ov=COL_OVERRIDES.get((ws.__sheetName||"")+"!"+c);if(ov!=null)return ov;const x=(ws["!cols"]||[])[c];if(!x)return 85;if(x.hidden)return 0;return x.wpx||((x.wch||x.width||12)*7.2)}
+function widthPx(ws,d){let n=0;for(let c=d.r.s.c;c<=d.r.e.c;c++)n+=colPx(ws,c);return n||1}
+function rowPt(ws,r){const x=(ws["!rows"]||[])[r];return(x&&x.hpt)||18}
+function pageSize(p,o){let a=[...PAPERS[p]];if(o==="landscape")a.reverse();return{w:a[0],h:a[1]}}
+function printable(p,o,m){return pageSize(p,o).w-2*m}
+function autoHeader(ws,d){let max=Math.min(d.r.e.r,d.r.s.r+5),best=1;for(let r=d.r.s.r;r<=max;r++){let filled=0,bold=0;for(let c=d.r.s.c;c<=d.r.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&cell.v!==undefined){filled++;const s=getExactStyle(cell,ws.__sheetName||"",r,c);if(s.font?.bold)bold++}}if(filled&&(bold/filled>.35||r===d.r.s.r))best=r-d.r.s.r+1}return best}
+function choose(ws,d,opt){const est=widthPx(ws,d)*.75,layouts=[["A4","portrait"],["A4","landscape"],["A3","portrait"],["A3","landscape"]];for(const [p,o] of layouts)for(let f=opt.pref;f>=opt.min;f--){if(est*(f/opt.pref)<=printable(p,o,opt.margin))return{paper:p,orientation:o,font:f,scale:1}}const p="A3",o="landscape";return{paper:p,orientation:o,font:opt.min,scale:Math.min(1,printable(p,o,opt.margin)/(est*(opt.min/opt.pref)))} }
+function cssCell(cell,sheetName,row,col,scale){const s=getExactStyle(cell,sheetName,row,col),font=s.font||{},fill=s.fill||{},al=s.alignment||{},b=s.border||{},st=[];
+  // CRITICAL COLOUR RULE: only a genuine Excel SOLID pattern may paint a cell background.
+  // Never use bgColor as a fallback. Excel often stores bgColor metadata for non-filled cells.
+  const isSolid=String(fill.patternType||"").toLowerCase()==="solid";
+  if(isSolid){const bg=excelColorToCss(fill.fgColor);if(bg)st.push(`background-color:${bg}!important`)}
+  const fg=excelColorToCss(font.color);if(fg)st.push(`color:${fg}!important`);
+  if(font.bold)st.push("font-weight:bold");if(font.italic)st.push("font-style:italic");if(font.underline)st.push("text-decoration:underline");if(font.sz)st.push(`font-size:${font.sz*(scale||1)}pt`);
+  // Deliberately NOT setting font-family from the workbook's own font name
+  // (e.g. Calibri, Excel's near-universal default). The live preview always
+  // rendered this correctly - the browser's real layout engine has no
+  // trouble with it - but the downloaded PDF consistently did not, on every
+  // sheet, even though both use the exact same browser and installed
+  // fonts. That points at html2canvas's own separate text-measurement pass
+  // disagreeing with the browser's actual layout for that specific font,
+  // even though it never visibly fails for the live DOM. Two targeted
+  // fixes for the resulting symptom (letterRendering, pre-wrap) did not
+  // resolve it, so instead of continuing to chase that mismatch, every
+  // cell now renders in the same safe, universal font (see .excel-table's
+  // own font-family) that both the browser and html2canvas measure
+  // identically - trading exact font fidelity to Excel for output that's
+  // actually readable.
+  if(al.horizontal){const h=al.horizontal==="centerContinuous"?"center":al.horizontal;st.push(`text-align:${h}`)}if(al.vertical)st.push(`vertical-align:${al.vertical}`);
+  // Always pre-wrap, never plain "normal" wrapping. html2canvas has a
+  // long-documented bug where wrapped white-space:normal text can have the
+  // spaces between words silently dropped when it reconstructs the wrapped
+  // lines for the canvas (the live DOM preview, using the browser's own
+  // wrapping, is unaffected - this only shows up in the captured PDF).
+  // pre-wrap still wraps at the same points but explicitly preserves every
+  // whitespace character, sidestepping that code path entirely.
+  st.push("white-space:pre-wrap");
+  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#444";st.push(`border-${k}:1px solid ${bc}`)}});return st.join(";")}
+function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
+function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
+// Wraps a rendered table with an invisible full-height overlay carrying one
+// drag handle per column boundary - including the table's own left and
+// right edges, so the first and last columns are resizable too, not just
+// the ones with a boundary on both sides. Handles are positioned by the
+// exact same cumulative colPx proportions as the table's own <col> widths,
+// so a handle always sits exactly on the column line it resizes, at
+// exactly the page's own width, on the page itself (not a separate control
+// that can drift out of sync with it). Each carries a persistent (if
+// subtle) visible line via CSS so the draggable boundaries are visible at
+// rest, not just discoverable by hovering blindly.
+function wrapInteractive(table,ws,visCols){
+  const wrap=document.createElement("div");wrap.style.position="relative";
+  wrap.appendChild(table);
+  const overlay=document.createElement("div");overlay.className="colResizeOverlay";
+  // Boundary 0 = the table's left edge (resizes column 0, growing it as you
+  // drag left, away from the table). Boundary i in 1..n-1 = between column
+  // i-1 and column i (resizes column i-1, growing it as you drag right -
+  // this is the original interior-handle behaviour). Boundary n = the
+  // table's right edge (resizes the last column, growing it as you drag
+  // right, same convention as the interior handles).
+  for(let b=0;b<=visCols.length;b++){
+    const handle=document.createElement("div");
+    handle.className="colResizeHandle"+((b===0||b===visCols.length)?" edge":"");
+    handle.dataset.sheet=ws.__sheetName||"";
+    handle.dataset.col=b===0?visCols[0]:visCols[b-1];
+    handle.dataset.dir=b===0?"left":"right";
+    overlay.appendChild(handle);
+  }
+  wrap.appendChild(overlay);
+  positionHandles(overlay,ws,visCols);
+  return wrap;
+}
+function positionHandles(overlay,ws,visCols){
+  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
+  let cum=0;
+  Array.from(overlay.children).forEach((h,idx)=>{
+    if(idx>0)cum+=colPx(ws,visCols[idx-1]);
+    h.style.left=(cum/total*100)+"%";
+  });
+}
+// Live, cheap visual feedback while dragging: patch every rendered <col>'s
+// width (and the resize-handle overlay's positions) for every page of this
+// sheet currently on screen. Table-layout:fixed reacts to a <col> width
+// change with a normal browser reflow, so cell text re-wraps and row
+// heights grow/shrink immediately, with no JS-side re-measurement needed.
+// The debounced schedulePreview() call alongside this is what corrects
+// pagination (which rows land on which page) once the drag settles.
+function updateColgroups(sheetName){
+  const ws=wb.Sheets[sheetName],d=dims(ws);
+  if(!d)return;
+  const visCols=visibleCols(ws,d);
+  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
+  document.querySelectorAll(`#previewPages table.excel-table[data-sheet="${CSS.escape(sheetName)}"]`).forEach(table=>{
+    const scale=+table.dataset.scale||1;
+    table.style.width=(total*scale*.75)+"pt";
+    const cols=table.querySelectorAll(":scope > colgroup > col");
+    visCols.forEach((c,i)=>{if(cols[i])cols[i].style.width=(colPx(ws,c)*scale*.75)+"pt"});
+  });
+  document.querySelectorAll(`#previewPages .colResizeOverlay`).forEach(overlay=>{
+    const first=overlay.children[0];
+    if(!first||first.dataset.sheet!==sheetName)return;
+    positionHandles(overlay,ws,visCols);
+  });
+}
+function makeTable(ws,d,start,end,font,scale,visCols){
+  // Excel never prints hidden columns; rendering them anyway forces their
+  // text into a near-zero-width cell, which wraps character-by-character
+  // and inflates the whole row's height, pushing other rows off the page.
+  visCols=visCols||visibleCols(ws,d);
+  // Column-width compression previously used CSS zoom to visually shrink an
+  // over-wide table. zoom is a non-standard property, and html2canvas's own
+  // text-measurement pass does not handle it consistently with the
+  // browser's real layout: on at least one real system this produced
+  // exactly the "characters run together" corruption seen only in the
+  // captured PDF, never in the live DOM preview which uses the browser's
+  // actual rendering. Baking the scale into real font size, column width
+  // and row height instead - not a paint-time visual trick - means both
+  // the browser and html2canvas measure the same actual dimensions, with
+  // nothing left to disagree about.
+  const table=document.createElement("table");table.className="excel-table";table.dataset.sheet=ws.__sheetName||"";table.dataset.scale=scale;table.style.fontSize=(font*scale)+"pt";
+  let cg=document.createElement("colgroup"),total=0,arr=[];
+  visCols.forEach(c=>{const w=colPx(ws,c);arr.push(w);total+=w});
+  table.style.width=(total*scale*.75)+"pt";
+  arr.forEach(w=>{const col=document.createElement("col");col.style.width=(w*scale*.75)+"pt";cg.appendChild(col)});
+  table.appendChild(cg);
+  const mm=mergedMap(ws),visSet=new Set(visCols);
+  for(let r=start;r<=end;r++){
+    const tr=document.createElement("tr");tr.style.minHeight=Math.max(14*scale,rowPt(ws,r)*.75*scale)+"pt";
+    for(const c of visCols){
+      if(mm.covered.has(`${r}:${c}`))continue;
+      const td=document.createElement("td"),cell=ws[XLSX.utils.encode_cell({r,c})];
+      td.innerHTML=esc(cell?(cell.w??cell.v??""):"");
+      td.style.cssText=cssCell(cell,ws.__sheetName||"",r,c,scale);
+      const z=mm.m.get(`${r}:${c}`);
+      if(z){td.rowSpan=z.rs;let cs=0;for(let cc=c;cc<c+z.cs;cc++)if(visSet.has(cc))cs++;td.colSpan=Math.max(1,cs)}
+      tr.appendChild(td)
+    }
+    table.appendChild(tr)
+  }
+  return table
+}
+function measureRowHeights(ws,d,font,scale,bodyWidthPt,visCols){
+  const host=$("renderHost");
+  const wrapper=document.createElement("div");
+  wrapper.style.cssText=`position:absolute;left:0;top:0;width:${bodyWidthPt}pt;visibility:hidden;contain:layout style`;
+  const table=makeTable(ws,d,d.r.s.r,d.r.e.r,font,scale,visCols);
+  wrapper.appendChild(table);
+  host.appendChild(wrapper);
+  // Measure exactly the same DOM/table geometry used by the final page.
+  // getBoundingClientRect() is in CSS px; convert once to PDF pt.
+  const heights=Array.from(table.querySelectorAll(":scope > tbody > tr, :scope > tr"))
+    .map(tr=>tr.getBoundingClientRect().height*0.75 + 0.75);
+  host.removeChild(wrapper);
+  return heights;
+}
+function pageDiv(sz,margin,footer,pageNo,home){
+  const page=document.createElement("div");
+  page.className="pdf-page";
+  page.style.width=sz.w+"pt";
+  page.style.height=sz.h+"pt";
+  page.style.overflow="hidden";
+  page.style.boxSizing="border-box";
+  const body=document.createElement("div");
+  body.className="page-body";
+  body.style.left=margin+"pt";
+  body.style.top=margin+"pt";
+  body.style.width=(sz.w-2*margin)+"pt";
+  body.style.height=(sz.h-2*margin-32)+"pt";
+  body.style.boxSizing="border-box";
+  body.style.overflow="hidden";
+  page.appendChild(body);const fl=document.createElement("div");fl.className="footer-left";fl.style.left=margin+"pt";fl.style.width=(sz.w-2*margin-95)+"pt";fl.textContent=footer;page.appendChild(fl);const fr=document.createElement("div");fr.className="footer-right";fr.style.right=margin+"pt";fr.textContent="Page "+pageNo;page.appendChild(fr);if(home){const h=document.createElement("div");h.className="home";h.textContent="HOME";page.appendChild(h)}return{page,body}}
+function buildSheet(x,opt,startNo,interactive){const ws=wb.Sheets[x.name],d=dims(ws);if(!d)return[];const sz=pageSize(x.paper,x.orientation),titleH=Math.max(18,(x.font+2)*1.35)+7,bodyWidthPt=sz.w-2*opt.margin,usable=sz.h-2*opt.margin-32-titleH-3,scale=Math.min(1,bodyWidthPt/(widthPx(ws,d)*.75));
+  // Excel's stored row height can be stale relative to actual wrapped content
+  // (e.g. text edited after the row was last auto-fit, or our column widths
+  // differ slightly from Excel's own). Pagination must use each row's real
+  // rendered height, or rows that wrap taller than expected silently get
+  // clipped off the bottom of the fixed-height page body.
+  const visCols=visibleCols(ws,d);
+  const rowHeights=measureRowHeights(ws,d,x.font,scale,bodyWidthPt,visCols);
+  const hpt=r=>rowHeights[r-d.r.s.r]??Math.max(14,rowPt(ws,r)*.75);
+  // interactive=false (used for the actual PDF capture) skips the resize-handle
+  // overlay entirely - it's live-preview-only UI chrome, never meant to be
+  // part of the document, and keeping the captured page's DOM identical to
+  // a plain table avoids handing html2canvas anything unusual to trip over.
+  const place=interactive?(el)=>wrapInteractive(el,ws,visCols):(el)=>el;
+  let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[],pageIdxInSheet=0;while(cur<=end){let used=0;if(!first&&x.headers)for(let r=d.r.s.r;r<Math.min(d.r.s.r+x.headers,end+1);r++)used+=hpt(r);const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&x.headers){const headerTable=makeTable(ws,d,d.r.s.r,Math.min(d.r.s.r+x.headers-1,end),x.font,scale,visCols);pg.body.appendChild(place(headerTable))}const dataTable=makeTable(ws,d,a,cur-1,x.font,scale,visCols);pg.body.appendChild(place(dataTable));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&x.headers,pageIdxInSheet});no++;first=false;pageIdxInSheet++}return out}
+function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
+function getOpt(){return{margin:Math.max(.75,+$("margin").value||.75)*PT,pref:+$("prefFont").value||10,min:+$("minFont").value||7,showFilename:$("showFilename").checked,home:$("home").checked,index:$("index").checked,hiFiCapture:$("hiFiCapture").checked}}
+function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetNames.map((name,i)=>{const ws=wb.Sheets[name],d=dims(ws);if(!d)return{i,name,empty:true,paper:"A4",orientation:"portrait",font:opt.pref,headers:0};const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,headers:+$("headerRows").value||autoHeader(ws,d)}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td><select class="paper" data-i="${x.i}"><option ${x.paper==="A4"?"selected":""}>A4</option><option ${x.paper==="A3"?"selected":""}>A3</option></select></td><td><select class="orient" data-i="${x.i}"><option value="portrait" ${x.orientation==="portrait"?"selected":""}>Portrait</option><option value="landscape" ${x.orientation==="landscape"?"selected":""}>Landscape</option></select></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="number" value="${x.headers}" min="0" max="20" style="width:65px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{el.addEventListener("input",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()});el.addEventListener("change",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr"))x.headers=Math.max(0,+el.value||0);schedulePreview()})});$("analysisCard").classList.remove("hidden");$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Preview updates automatically.`)}
+$("analysisToggle").addEventListener("click",()=>{
+  const open=$("analysisToggle").classList.toggle("open");
+  $("analysisToggle").setAttribute("aria-expanded",String(open));
+  $("analysisBody").classList.toggle("hidden",!open);
+});
+let previewTimer=null;
+function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(renderPreview,120)}
+function renderPreview(){
+  if(!wb||!results.length)return;
+  const opt=getOpt(),host=$("previewPages");
+
+  // Preserve the viewport's scroll position across a rebuild (this fires on
+  // every column-resize settle) by anchoring to whichever page is nearest
+  // the top of the current view, then restoring that same page + relative
+  // offset once the new DOM is built. Without this, every re-render (e.g.
+  // mid-drag) yanks the view back to the very top / the Index page.
+  let anchor=null;
+  for(const child of Array.from(host.children)){
+    if(child.dataset&&child.dataset.sheet&&child.offsetTop<=host.scrollTop+4){
+      anchor={sheet:child.dataset.sheet,pageIdx:child.dataset.pageIdx,offset:host.scrollTop-child.offsetTop};
+    }
+  }
+
+  const renderHost=$("renderHost");renderHost.innerHTML="";
+  let no=opt.index?2:1,starts=[],all=[];
+  const displayFrag=document.createDocumentFragment();
+  for(const x of results){
+    if(x.empty)continue;
+    starts.push({name:x.name,no});
+    const resetRow=document.createElement("div");resetRow.className="sheetResetRow";resetRow.dataset.sheet=x.name;
+    const resetBtn=document.createElement("button");resetBtn.type="button";resetBtn.className="sheetResetBtn";resetBtn.textContent=`Reset "${x.name}" columns to Excel widths`;resetBtn.dataset.sheet=x.name;
+    resetRow.appendChild(resetBtn);
+    displayFrag.appendChild(resetRow);
+    const pages=buildSheet(x,opt,no,true);
+    pages.forEach(p=>{
+      p.el.dataset.sheet=x.name;p.el.dataset.pageIdx=String(p.pageIdxInSheet);
+      displayFrag.appendChild(p.el.cloneNode(true));
+      renderHost.appendChild(p.el);
+    });
+    all.push(...pages);
+    no+=pages.length;
+  }
+  host.innerHTML="";
+  if(opt.index){
+    const ix=createIndexPage(starts,opt,all.length);
+    host.appendChild(ix.cloneNode(true));
+    renderHost.appendChild(ix);
+  }
+  host.appendChild(displayFrag);
+
+  $("previewCard").classList.remove("hidden");
+  $("previewInfo").textContent=`${all.length+(opt.index?1:0)} PDF page(s) in preview. Pages marked “HEADER REPEAT” show repeated header rows.`;
+  host.querySelectorAll(".pdf-page").forEach((p,i)=>{const r=p.querySelector(".sheet-name");if(r&&i>0){const tag=document.createElement("div");tag.className="previewTag";tag.textContent="PDF PAGE PREVIEW";p.appendChild(tag)}});
+
+  if(anchor){
+    const match=Array.from(host.children).find(c=>c.dataset&&c.dataset.sheet===anchor.sheet&&c.dataset.pageIdx===anchor.pageIdx);
+    if(match)host.scrollTop=match.offsetTop+anchor.offset;
+  }
+}
+async function capture(pdf,el,sz,hiFi){
+  await new Promise(r=>requestAnimationFrame(r));
+  // html2canvas normally measures text itself to lay it out on the canvas,
+  // separately from the browser's own layout engine - and on some systems
+  // that measurement disagrees enough to make characters overlap/run
+  // together in the captured image, even though the live on-screen preview
+  // (real DOM, real text layout) looks correct. letterRendering (placing
+  // each character individually instead of trusting a word-level width
+  // estimate) is the standard mitigation and is always on.
+  // hiFi additionally opts into foreignObjectRendering, which paints each
+  // page via the browser's own renderer through an SVG <foreignObject>
+  // instead of html2canvas's separate text measurement entirely - the most
+  // direct possible fix for this class of bug, but experimental and known
+  // to fail (producing solid-black pages) in at least one tested
+  // environment, so it's opt-in rather than the default.
+  await document.fonts?.ready;
+  const rect=el.getBoundingClientRect();
+  // Do not invent a second width/height conversion here. Capture the exact
+  // rendered page dimensions that pagination and the browser use.
+  const opts={
+    scale:2,
+    useCORS:true,
+    allowTaint:true,
+    backgroundColor:"#ffffff",
+    logging:false,
+    letterRendering:true,
+    width:Math.ceil(rect.width),
+    height:Math.ceil(rect.height),
+    windowWidth:Math.ceil(rect.width),
+    windowHeight:Math.ceil(rect.height),
+    scrollX:0,
+    scrollY:0
+  };
+  if(hiFi)opts.foreignObjectRendering=true;
+  const canvas=await html2canvas(el,opts);
+  // PNG is used for document text instead of JPEG. JPEG introduces ringing and
+  // softening around small glyphs and makes the PDF appear to have a different
+  // font weight/size even when the geometry is correct.
+  pdf.addImage(canvas.toDataURL("image/png"),"PNG",0,0,sz.w,sz.h,undefined,"FAST");
+}
+async function generatePdf(){if(!results.length){alert("Select an Excel workbook first.");return}const btn=$("generate");btn.disabled=true;$("progress").style.display="block";$("progress").value=0;try{const opt=getOpt();let no=opt.index?2:1,all=[],starts=[];
+  status("Generating PDF with v17 exact-layout capture...");for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const p=buildSheet(x,opt,no,false);all.push(...p);no+=p.length}const total=all.length+(opt.index?1:0);if(!total)throw new Error("No printable worksheets found.");let pdf=null,done=0;const renderHost=$("renderHost");if(opt.index){const ix=createIndexPage(starts,opt,all.length);pdf=new jsPDF({orientation:"portrait",unit:"pt",format:"a4",compress:true});renderHost.appendChild(ix);await capture(pdf,ix,{w:PAPERS.A4[0],h:PAPERS.A4[1]},opt.hiFiCapture);renderHost.removeChild(ix);done++;$("progress").value=done/total*100}for(const p of all){if(!pdf)pdf=new jsPDF({orientation:p.x.orientation,unit:"pt",format:p.x.paper.toLowerCase(),compress:true});else pdf.addPage(p.x.paper.toLowerCase(),p.x.orientation);renderHost.appendChild(p.el);await capture(pdf,p.el,p.sz,opt.hiFiCapture);renderHost.removeChild(p.el);done++;$("progress").value=done/total*100;status(`Generating page ${done} of ${total}...`)}if(opt.index){const indexPage=1;starts.forEach((s,i)=>{const rowY=155+i*27;pdf.setPage(indexPage);pdf.link(105,rowY,320,23,{pageNumber:s.no,top:0})});for(const p of all){pdf.setPage(p.no);if(opt.home)pdf.link(p.sz.w-80,5,75,25,{pageNumber:indexPage,top:0})}}let name=$("output").value.trim()||fileObj.name.replace(/\.[^.]+$/i,"")+".pdf";if(!/\.pdf$/i.test(name))name+=".pdf";pdf.save(name);status(`PDF generated successfully and download started.\n${total} page(s) created.`);$("progress").value=100}catch(e){console.error(e);status("Generation failed: "+e.message+"\n\nTechnical details:\n"+(e.stack||"No stack trace available"));alert("Generation failed: "+e.message)}finally{btn.disabled=false}}
+async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");COL_OVERRIDES=new Map();try{const buf=await f.arrayBuffer();await loadExactStyles(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
+// Column-resize drag: event delegation so it keeps working after renderPreview()
+// replaces #previewPages's children (and clones them into the live preview).
+// The handle sits directly on the rendered page (see wrapInteractive), so it
+// is always exactly page-width and exactly on the column line it resizes.
+let colDrag=null;
+$("previewPages").addEventListener("mousedown",e=>{
+  const handle=e.target.closest(".colResizeHandle");
+  if(!handle)return;
+  e.preventDefault();
+  const sheetName=handle.dataset.sheet,col=+handle.dataset.col,dir=handle.dataset.dir||"right";
+  const ws=wb.Sheets[sheetName],d=dims(ws);
+  if(!ws||!d)return;
+  const visCols=visibleCols(ws,d);
+  const total=visCols.reduce((s,c)=>s+colPx(ws,c),0)||1;
+  const wrap=handle.parentElement.parentElement;
+  const table=wrap.querySelector("table.excel-table");
+  // Measure the actual on-screen rendered width right now - this already
+  // accounts for any zoom/scale in effect, so the drag-to-width conversion
+  // below is correct regardless of how compressed this sheet's page is.
+  const renderedWidth=table.getBoundingClientRect().width;
+  colDrag={sheetName,col,dir,startColPx:colPx(ws,col),startX:e.clientX,pxPerUnit:renderedWidth/total};
+  handle.classList.add("active");
+  document.body.style.cursor="col-resize";
+});
+window.addEventListener("mousemove",e=>{
+  if(!colDrag)return;
+  const rawDelta=e.clientX-colDrag.startX;
+  // The left-edge handle resizes column 0 from its own left boundary, so
+  // dragging left (away from the table) should grow it - the opposite
+  // sign convention from every other handle, which grows the column to
+  // its left as you drag right.
+  const deltaPx=colDrag.dir==="left"?-rawDelta:rawDelta;
+  const newColPx=Math.max(15,Math.round(colDrag.startColPx+deltaPx/colDrag.pxPerUnit));
+  COL_OVERRIDES.set(colDrag.sheetName+"!"+colDrag.col,newColPx);
+  updateColgroups(colDrag.sheetName);
+  schedulePreview();
+});
+window.addEventListener("mouseup",()=>{
+  if(!colDrag)return;
+  document.body.style.cursor="";
+  document.querySelectorAll(".colResizeHandle.active").forEach(h=>h.classList.remove("active"));
+  colDrag=null;
+});
+$("previewPages").addEventListener("click",e=>{
+  const btn=e.target.closest(".sheetResetBtn");
+  if(!btn)return;
+  const sheetName=btn.dataset.sheet;
+  for(const key of Array.from(COL_OVERRIDES.keys()))if(key.startsWith(sheetName+"!"))COL_OVERRIDES.delete(key);
+  schedulePreview();
+});
+$("drop").onclick=()=>$("file").click();$("file").onchange=e=>handleFile(e.target.files[0]);$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("drag")};$("drop").ondragleave=()=>$("drop").classList.remove("drag");$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("drag");handleFile(e.dataTransfer.files[0])};$("generate").onclick=generatePdf;
+["prefFont","minFont","margin","headerRows","showFilename","index","home"].forEach(id=>$(id).addEventListener("input",()=>{if(wb){if(id==="headerRows")analyseWorkbook();else schedulePreview()}}));
+</script>
+</body>
+</html>
