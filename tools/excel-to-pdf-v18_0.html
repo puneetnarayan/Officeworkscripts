@@ -685,50 +685,35 @@ $("previewPages").addEventListener("click",e=>{
   for(const key of Array.from(COL_OVERRIDES.keys()))if(key.startsWith(sheetName+"!"))COL_OVERRIDES.delete(key);
   schedulePreview();
 });
-// Robust file picker + drag/drop handling.
-// Prevent the browser from navigating to the dropped workbook, and keep the
-// drop zone highlighted while the pointer moves across its child elements.
-let dragDepth=0;
-$("drop").onclick=e=>{if(e.target!==$("file"))$("file").click()};
+// File input + drag/drop. Keep this deliberately identical to the proven V17.3
+// interaction model; only add document-level protection against browser navigation.
+$("drop").onclick=()=>$("file").click();
 $("file").onchange=e=>{
-  dragDepth=0;
-  $("drop").classList.remove("drag");
   const f=e.target.files&&e.target.files[0];
   if(f)handleFile(f);
 };
-window.addEventListener("dragover",e=>{
-  if(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes("Files"))e.preventDefault();
-});
-window.addEventListener("drop",e=>{
-  if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length){
-    e.preventDefault();
-  }
-});
-$("drop").addEventListener("dragenter",e=>{
+$("drop").ondragover=e=>{
   e.preventDefault();
   e.stopPropagation();
-  dragDepth++;
   $("drop").classList.add("drag");
-});
-$("drop").addEventListener("dragover",e=>{
+};
+$("drop").ondragleave=e=>{
   e.preventDefault();
   e.stopPropagation();
-  if(e.dataTransfer)e.dataTransfer.dropEffect="copy";
-  $("drop").classList.add("drag");
-});
-$("drop").addEventListener("dragleave",e=>{
-  e.preventDefault();
-  e.stopPropagation();
-  dragDepth=Math.max(0,dragDepth-1);
-  if(!dragDepth)$("drop").classList.remove("drag");
-});
-$("drop").addEventListener("drop",e=>{
-  e.preventDefault();
-  e.stopPropagation();
-  dragDepth=0;
   $("drop").classList.remove("drag");
-  const files=e.dataTransfer&&e.dataTransfer.files;
-  if(files&&files.length)handleFile(files[0]);
+};
+$("drop").ondrop=e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  $("drop").classList.remove("drag");
+  const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+  if(f)handleFile(f);
+};
+document.addEventListener("dragover",e=>{
+  if(e.dataTransfer&&e.dataTransfer.types&&Array.from(e.dataTransfer.types).includes("Files"))e.preventDefault();
+});
+document.addEventListener("drop",e=>{
+  if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length)e.preventDefault();
 });
 $("generate").onclick=generatePdf;
 ["prefFont","minFont","margin","headerRows","showFilename","index","home"].forEach(id=>$(id).addEventListener("input",()=>{
