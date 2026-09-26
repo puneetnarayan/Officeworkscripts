@@ -6,8 +6,8 @@
 <title>Office Work Scripts</title>
 <style>
   :root{
-    --sidebar-bg:#1a2332; --sidebar-ink:#c7d0dc; --sidebar-active:#2563eb;
-    --sidebar-hover:#233047; --bg:#f4f6f8; --line:#e2e8f0;
+    --sidebar-bg:#1a2332; --sidebar-ink:#3f2b1f; --sidebar-active:#d47a3a;
+    --sidebar-hover:#f0b27a; --nav-pastel:#f6c7a3; --nav-click:#c76528; --bg:#f4f6f8; --line:#e2e8f0;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;font-family:"Segoe UI",Arial,sans-serif;background:var(--bg)}
@@ -25,15 +25,17 @@
   .brand span{font-size:12px;color:#8794a8}
   .sidebar.collapsed .brand{display:none}
   .nav{display:flex;flex-direction:column;gap:6px}
-  .nav-btn{display:flex;align-items:center;gap:12px;text-align:left;background:transparent;
+  .nav-btn{display:flex;align-items:center;gap:12px;text-align:left;background:var(--nav-pastel);
     border:0;border-radius:8px;padding:12px 12px;color:var(--sidebar-ink);font-size:14px;
-    font-weight:600;cursor:pointer;transition:background .12s;overflow:hidden;white-space:nowrap}
+    font-weight:600;cursor:pointer;transition:background .12s,transform .05s;overflow:hidden;white-space:nowrap}
   .sidebar.collapsed .nav-btn{justify-content:center;padding:12px 0}
   .nav-btn .icon{font-size:18px;width:22px;text-align:center;flex:none}
   .nav-btn:hover{background:var(--sidebar-hover)}
+  .nav-btn:active{background:var(--nav-click);transform:translateY(1px)}
   .nav-btn.active{background:var(--sidebar-active);color:#fff}
-  .nav-desc{font-size:11px;font-weight:400;color:#8794a8;margin-top:2px}
-  .nav-btn.active .nav-desc{color:#dbe6ff}
+  .nav-btn.active:hover{background:var(--nav-click)}
+  .nav-desc{font-size:11px;font-weight:400;color:#6f513f;margin-top:2px}
+  .nav-btn.active .nav-desc{color:#fff3e8}
   .sidebar.collapsed .nav-btn .label{display:none}
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
   .topbar{background:#fff;border-bottom:1px solid var(--line);padding:14px 24px;
@@ -54,12 +56,6 @@
       </div>
     </div>
     <div class="nav" id="nav">
-      <button class="nav-btn" data-src="tools/excel-to-pdf.html" data-title="Smart Excel to PDF Converter" title="Smart Excel to PDF Converter">
-        <span class="icon">📄</span>
-        <span class="label">Excel to PDF Converter
-          <div class="nav-desc">Convert workbooks to formatted PDF</div>
-        </span>
-      </button>
       <button class="nav-btn active" data-src="tools/excel-to-pdf-v18_1.html" data-title="Excel2PDF V18.1" title="Excel2PDF V18.1">
         <span class="icon">📄</span>
         <span class="label">Excel2PDF V18.1
@@ -76,78 +72,6 @@
         <span class="icon">📄</span>
         <span class="label">Excel2PDF V17.2
           <div class="nav-desc">Fixed column proportions across preview and PDF</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v17_1.html" data-title="Excel2PDF V17.1" title="Excel2PDF V17.1">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V17.1
-          <div class="nav-desc">Live margin &amp; header-range preview and PDF output</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v17.html" data-title="Excel2PDF V17" title="Excel2PDF V17">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V17
-          <div class="nav-desc">Exact-layout PDF capture with improved font and row handling</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v16.html" data-title="Excel2PDF V16" title="Excel2PDF V16">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V16
-          <div class="nav-desc">Compact sidebar layout, more room for preview</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v15.html" data-title="Excel2PDF V15" title="Excel2PDF V15">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V15
-          <div class="nav-desc">Drag-to-resize columns, live re-wrap</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v14.html" data-title="Excel2PDF V14" title="Excel2PDF V14">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V14
-          <div class="nav-desc">Live preview, header repeat, Excel colours</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v10.html" data-title="Excel2PDF V10" title="Excel2PDF V10">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V10
-          <div class="nav-desc">Alternate Excel to PDF converter</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-to-pdf-v9.html" data-title="Excel2PDF V9" title="Excel2PDF V9">
-        <span class="icon">📄</span>
-        <span class="label">Excel2PDF V9
-          <div class="nav-desc">Alternate Excel to PDF converter</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/pdf-table-extractor.html" data-title="PDF PO &amp; Service Order Table Extractor" title="PDF PO &amp; Service Order Table Extractor">
-        <span class="icon">📊</span>
-        <span class="label">PDF Table Extractor
-          <div class="nav-desc">Extract PO / service order tables to Excel</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/pdf-merger/index.html" data-title="PDF Merger with Index" title="PDF Merger with Index">
-        <span class="icon">📚</span>
-        <span class="label">PDF Merger with Index
-          <div class="nav-desc">Merge PDFs into one file with a linked index</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/excel-version-comparator.html" data-title="Excel Version Comparator" title="Excel Version Comparator">
-        <span class="icon">🔀</span>
-        <span class="label">Excel Version Comparator
-          <div class="nav-desc">Compare 2-3 workbook versions, highlight changes</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/file-renamer.html" data-title="OneDrive Master File Renamer" title="OneDrive Master File Renamer">
-        <span class="icon">🗂️</span>
-        <span class="label">Master File Renamer
-          <div class="nav-desc">Copy &amp; rename files per company</div>
-        </span>
-      </button>
-      <button class="nav-btn" data-src="tools/folder-copier.html" data-title="Folder &amp; File Company Copier" title="Folder &amp; File Company Copier">
-        <span class="icon">📁</span>
-        <span class="label">Folder &amp; File Copier
-          <div class="nav-desc">Duplicate folder + files per company</div>
         </span>
       </button>
     </div>
