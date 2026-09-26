@@ -685,7 +685,52 @@ $("previewPages").addEventListener("click",e=>{
   for(const key of Array.from(COL_OVERRIDES.keys()))if(key.startsWith(sheetName+"!"))COL_OVERRIDES.delete(key);
   schedulePreview();
 });
-$("drop").onclick=()=>$("file").click();$("file").onchange=e=>handleFile(e.target.files[0]);$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("drag")};$("drop").ondragleave=()=>$("drop").classList.remove("drag");$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("drag");handleFile(e.dataTransfer.files[0])};$("generate").onclick=generatePdf;
+// Robust file picker + drag/drop handling.
+// Prevent the browser from navigating to the dropped workbook, and keep the
+// drop zone highlighted while the pointer moves across its child elements.
+let dragDepth=0;
+$("drop").onclick=e=>{if(e.target!==$("file"))$("file").click()};
+$("file").onchange=e=>{
+  dragDepth=0;
+  $("drop").classList.remove("drag");
+  const f=e.target.files&&e.target.files[0];
+  if(f)handleFile(f);
+};
+window.addEventListener("dragover",e=>{
+  if(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes("Files"))e.preventDefault();
+});
+window.addEventListener("drop",e=>{
+  if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length){
+    e.preventDefault();
+  }
+});
+$("drop").addEventListener("dragenter",e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  dragDepth++;
+  $("drop").classList.add("drag");
+});
+$("drop").addEventListener("dragover",e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  if(e.dataTransfer)e.dataTransfer.dropEffect="copy";
+  $("drop").classList.add("drag");
+});
+$("drop").addEventListener("dragleave",e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  dragDepth=Math.max(0,dragDepth-1);
+  if(!dragDepth)$("drop").classList.remove("drag");
+});
+$("drop").addEventListener("drop",e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  dragDepth=0;
+  $("drop").classList.remove("drag");
+  const files=e.dataTransfer&&e.dataTransfer.files;
+  if(files&&files.length)handleFile(files[0]);
+});
+$("generate").onclick=generatePdf;
 ["prefFont","minFont","margin","headerRows","showFilename","index","home"].forEach(id=>$(id).addEventListener("input",()=>{
   if(!wb)return;
   if(id==="headerRows"){
