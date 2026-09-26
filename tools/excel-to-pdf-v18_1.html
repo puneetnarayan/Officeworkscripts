@@ -334,7 +334,7 @@ function measureContentWidthPx(ws,d,c){
     if(!raw.trim())continue;
     hasContent=true;
     const s=getExactStyle(cell,ws.__sheetName||"",r,c),font=s.font||{};
-    const size=Number(font.sz)||Number(RAW_STYLE.normalFont?.sz)||10;
+    const sizePt=Number(font.sz)||Number(RAW_STYLE.normalFont?.sz)||10; const size=sizePt*96/72;
     const family="Arial, Helvetica, sans-serif";
     const weight=font.bold?"700":"400",style=font.italic?"italic ":"";
     ctx.font=`${style}${weight} ${size}px ${family}`;
@@ -782,6 +782,7 @@ $("previewPages").addEventListener("click",e=>{
   if(!btn)return;
   const sheetName=btn.dataset.sheet;
   for(const key of Array.from(COL_OVERRIDES.keys()))if(key.startsWith(sheetName+"!"))COL_OVERRIDES.delete(key);
+  COL_PROFILE_CACHE.delete(sheetName);
   schedulePreview();
 });
 // File input + drag/drop. Keep this deliberately identical to the proven V17.3
