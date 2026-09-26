@@ -217,8 +217,10 @@ async function loadExactStyles(buf){
   const z=await JSZip.loadAsync(buf);
   const tf=z.file("xl/theme/theme1.xml");if(tf)RAW_STYLE.themeColors=rawTheme(await tf.async("text"));
   const sf=z.file("xl/styles.xml");
+  let root=null;
   if(sf){
-    const d=new DOMParser().parseFromString(await sf.async("text"),"application/xml"),root=d.documentElement;
+    const d=new DOMParser().parseFromString(await sf.async("text"),"application/xml");
+    root=d.documentElement;
     const fonts=rawKids(rawKids(root,"fonts")[0],"font");
     RAW_STYLE.fonts=fonts.map(f=>({bold:rawKids(f,"b").length>0,italic:rawKids(f,"i").length>0,underline:rawKids(f,"u").length>0,name:(rawKids(f,"name")[0]||{}).getAttribute?.("val"),sz:Number((rawKids(f,"sz")[0]||{}).getAttribute?.("val"))||undefined,color:rawColor(rawKids(f,"color")[0])}));
     RAW_STYLE.fills=rawKids(rawKids(root,"fills")[0],"fill").map(f=>{const p=rawKids(f,"patternFill")[0];return {patternType:p?.getAttribute("patternType")||"none",fgColor:rawColor(p&&rawKids(p,"fgColor")[0]),bgColor:rawColor(p&&rawKids(p,"bgColor")[0])}});
@@ -280,7 +282,7 @@ function excelMdwPx(ws){
   try{
     const canvas=document.createElement("canvas"),ctx=canvas.getContext("2d");
     const pxSize=sz*96/72;
-    ctx.font=\`normal \${pxSize}px "\${String(name).replace(/"/g,"")}"\`;
+    ctx.font=`normal ${pxSize}px "${String(name).replace(/"/g,"")}"`;
     const widths=Array.from("0123456789",ch=>ctx.measureText(ch).width);
     return Math.max(1,Math.round(Math.max(...widths)||6));
   }catch(e){return 7;}
