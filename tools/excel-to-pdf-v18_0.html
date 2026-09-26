@@ -107,6 +107,36 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
           <b>Drop Excel file here</b><br><span class="small">or click to browse (.xlsx, .xls, .xlsm)</span>
           <input id="file" type="file" accept=".xlsx,.xls,.xlsm" hidden>
         </div>
+        <script>
+        // Install the drop-zone handlers before the main application script.
+        // This guarantees file dropping remains available even if a later
+        // optional Excel/PDF library reports an initialization error.
+        (() => {
+          const dropZone = document.getElementById("drop");
+          const filePicker = document.getElementById("file");
+          if (!dropZone || !filePicker) return;
+          dropZone.addEventListener("click", () => filePicker.click());
+          filePicker.addEventListener("change", e => {
+            const f = e.target.files && e.target.files[0];
+            if (f && typeof window.__v18HandleFile === "function") window.__v18HandleFile(f);
+          });
+          ["dragenter","dragover"].forEach(type => dropZone.addEventListener(type, e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+            dropZone.classList.add("drag");
+          }));
+          ["dragleave","drop"].forEach(type => dropZone.addEventListener(type, e => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove("drag");
+          }));
+          dropZone.addEventListener("drop", e => {
+            const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (f && typeof window.__v18HandleFile === "function") window.__v18HandleFile(f);
+          });
+        })();
+        </script>
         <div id="fileInfo" class="small" style="margin-top:10px"></div>
       </div>
 
@@ -634,7 +664,7 @@ async function capture(pdf,el,sz,hiFi){
 }
 async function generatePdf(){if(!results.length){alert("Select an Excel workbook first.");return}const btn=$("generate");btn.disabled=true;$("progress").style.display="block";$("progress").value=0;try{const opt=getOpt();let no=opt.index?2:1,all=[],starts=[];
   status("Generating PDF with v18.0 Excel-width / fit-to-width capture...");for(const x of results){if(x.empty)continue;starts.push({name:x.name,no});const p=buildSheet(x,opt,no,false);all.push(...p);no+=p.length}const total=all.length+(opt.index?1:0);if(!total)throw new Error("No printable worksheets found.");let pdf=null,done=0;const renderHost=$("renderHost");if(opt.index){const ix=createIndexPage(starts,opt,all.length);pdf=new jsPDF({orientation:"portrait",unit:"pt",format:"a4",compress:true});renderHost.appendChild(ix);await capture(pdf,ix,{w:PAPERS.A4[0],h:PAPERS.A4[1]},opt.hiFiCapture);renderHost.removeChild(ix);done++;$("progress").value=done/total*100}for(const p of all){if(!pdf)pdf=new jsPDF({orientation:p.x.orientation,unit:"pt",format:p.x.paper.toLowerCase(),compress:true});else pdf.addPage(p.x.paper.toLowerCase(),p.x.orientation);renderHost.appendChild(p.el);await capture(pdf,p.el,p.sz,opt.hiFiCapture);renderHost.removeChild(p.el);done++;$("progress").value=done/total*100;status(`Generating page ${done} of ${total}...`)}if(opt.index){const indexPage=1;starts.forEach((s,i)=>{const rowY=155+i*27;pdf.setPage(indexPage);pdf.link(105,rowY,320,23,{pageNumber:s.no,top:0})});for(const p of all){pdf.setPage(p.no);if(opt.home)pdf.link(p.sz.w-80,5,75,25,{pageNumber:indexPage,top:0})}}let name=$("output").value.trim()||fileObj.name.replace(/\.[^.]+$/i,"")+".pdf";if(!/\.pdf$/i.test(name))name+=".pdf";pdf.save(name);status(`PDF generated successfully and download started.\n${total} page(s) created.`);$("progress").value=100}catch(e){console.error(e);status("Generation failed: "+e.message+"\n\nTechnical details:\n"+(e.stack||"No stack trace available"));alert("Generation failed: "+e.message)}finally{btn.disabled=false}}
-async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");COL_OVERRIDES=new Map();try{const buf=await f.arrayBuffer();await loadExactStyles(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
+async function handleFile(f){if(!f)return;if(!/\.(xlsx|xls|xlsm)$/i.test(f.name)){alert("Select an Excel file.");return}fileObj=f;window.__v18HandleFile=handleFile;$("fileInfo").textContent=`Selected: ${f.name}`;$("output").value=f.name.replace(/\.[^.]+$/i,"")+".pdf";status("Loading workbook and reading exact Excel styles...");COL_OVERRIDES=new Map();try{const buf=await f.arrayBuffer();await loadExactStyles(buf);wb=XLSX.read(new Uint8Array(buf),{type:"array",cellStyles:true,cellNF:true});wb.SheetNames.forEach(n=>{if(wb.Sheets[n])wb.Sheets[n].__sheetName=n});analyseWorkbook()}catch(err){wb=null;status("Load/analysis error: "+err.message);alert("Unable to load workbook: "+err.message)}}
 // Column-resize drag: event delegation so it keeps working after renderPreview()
 // replaces #previewPages's children (and clones them into the live preview).
 // The handle sits directly on the rendered page (see wrapInteractive), so it
