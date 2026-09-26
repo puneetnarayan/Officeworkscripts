@@ -236,23 +236,32 @@ function excelColorToCss(color){
 function getExactStyle(cell,sheetName,row,col){const ref=XLSX.utils.encode_cell({r:row,c:col});const idx=RAW_STYLE.cellStyleIndex.get(sheetName+"!"+ref);if(Number.isFinite(idx)&&RAW_STYLE.cellXfs[idx]){const x=RAW_STYLE.cellXfs[idx];return {font:RAW_STYLE.fonts[x.fontId]||{},fill:RAW_STYLE.fills[x.fillId]||{},border:RAW_STYLE.borders[x.borderId]||{},alignment:x.alignment||{},applyFill:x.applyFill}}return(cell&&cell.s&&typeof cell.s==="object")?cell.s:{}}
 function hasRealBorder(cell){const b=getExactStyle(cell,cell?.__sheetName||"",cell?.__row||0,cell?.__col||0).border||{};return ["top","right","bottom","left"].some(k=>b[k]?.style&&b[k].style!=="none")}
 function dims(ws){if(!ws||!ws["!ref"])return null;const base=XLSX.utils.decode_range(ws["!ref"]);let minR=Infinity,minC=Infinity,maxR=-1,maxC=-1;for(let r=base.s.r;r<=base.e.r;r++){for(let c=base.s.c;c<=base.e.c;c++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&(cell.v!==undefined||cell.f!==undefined||cell.w!==undefined)){minR=Math.min(minR,r);minC=Math.min(minC,c);maxR=Math.max(maxR,r);maxC=Math.max(maxC,c)}}}for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(a){minR=Math.min(minR,a.s.r);minC=Math.min(minC,a.s.c);maxR=Math.max(maxR,a.e.r);maxC=Math.max(maxC,a.e.c)}}if(maxR<0)return null;const r={s:{r:minR,c:minC},e:{r:maxR,c:maxC}};return{r,rows:maxR-minR+1,cols:maxC-minC+1}}
-function excelMdwPx(){
+function excelMdwPx(ws){
+  // SheetJS exposes MDW (Max Digit Width) when parsing XLSX column metadata.
+  // Prefer that workbook-derived integer because it already reflects Excel's
+  // font/scaling environment; only fall back to browser measurement when a
+  // workbook does not expose MDW.
+  const cols=ws?.["!cols"]||[];
+  for(const x of cols){
+    if(Number.isFinite(x?.MDW)&&x.MDW>0)return Math.round(x.MDW);
+  }
   const f=RAW_STYLE.normalFont||{};
   const name=f.name||"Arial",sz=Number(f.sz)||10;
   try{
     const canvas=document.createElement("canvas"),ctx=canvas.getContext("2d");
-    ctx.font=\`normal \${sz}px "\${String(name).replace(/"/g,"")}"\`;
+    const pxSize=sz*96/72;
+    ctx.font=\`normal \${pxSize}px "\${String(name).replace(/"/g,"")}"\`;
     const widths=Array.from("0123456789",ch=>ctx.measureText(ch).width);
     return Math.max(1,Math.round(Math.max(...widths)||6));
   }catch(e){return 7;}
 }
-function excelWidthToPx(width){
+function excelWidthToPx(width,mdw){
   const w=Number(width);
   if(!Number.isFinite(w))return 61;
-  const mdw=excelMdwPx();
+  const m=Number.isFinite(mdw)&&mdw>0?Math.round(mdw):7;
   // Excel/OOXML runtime conversion:
   // Truncate(((256*width + Truncate(128/MDW))/256)*MDW)
-  return Math.max(0,Math.trunc(((256*w+Math.trunc(128/mdw))/256)*mdw));
+  return Math.max(0,Math.trunc(((256*w+Math.trunc(128/m))/256)*m));
 }
 function colPx(ws,c){
   const ov=COL_OVERRIDES.get((ws.__sheetName||"")+"!"+c);
@@ -263,12 +272,12 @@ function colPx(ws,c){
     // SheetJS wpx is already an explicit pixel width; preserve it exactly.
     if(Number.isFinite(x.wpx))return x.wpx;
     const width=x.wch??x.width;
-    if(Number.isFinite(width))return excelWidthToPx(width);
+    if(Number.isFinite(width))return excelWidthToPx(width,x.MDW);
   }
   // V17.3 locked-column behavior is retained: missing <col> entries inherit
   // sheetFormatPr defaultColWidth, now converted using Excel's Normal-font MDW.
   const def=RAW_STYLE.sheetDefaults.get(ws.__sheetName||"")||{};
-  return excelWidthToPx(Number.isFinite(def.defaultColWidth)?def.defaultColWidth:8.43);
+  return excelWidthToPx(Number.isFinite(def.defaultColWidth)?def.defaultColWidth:8.43,excelMdwPx(ws));
 }
 function widthPx(ws,d){let n=0;for(let c=d.r.s.c;c<=d.r.e.c;c++)n+=colPx(ws,c);return n||1}
 function rowPt(ws,r){
