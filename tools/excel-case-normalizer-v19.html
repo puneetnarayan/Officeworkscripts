@@ -19,7 +19,7 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:
 .file-status{font-size:12px;padding:7px 12px;background:var(--lavender);border:1px solid #777;border-radius:20px}
 .panel{background:var(--panel);border:1.5px solid var(--border);border-radius:12px;padding:13px;margin-bottom:12px}
 .panel-title{font-weight:bold;font-size:15px;margin-bottom:10px}
-.drop-zone{border:2px dashed #777;background:#faf8fd;border-radius:10px;min-height:105px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer}
+.drop-zone{border:2px dashed #777;background:#faf8fd;border-radius:10px;min-height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer}
 .drop-zone.dragover{background:var(--blue);border-color:#4774a8}.drop-zone strong{font-size:15px}.drop-zone span{font-size:12px;color:#777;margin-top:5px}
 input[type=file]{display:none}
 .controls{display:grid;grid-template-columns:220px 1fr;gap:10px;align-items:center}
@@ -41,7 +41,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .stat{padding:7px 12px;border-radius:7px;border:1px solid #777;background:#fafafa;font-size:12px}
 .stat.changed{background:var(--yellow)}.stat.unchanged{background:var(--green)}
 .preview-wrap{max-height:470px;overflow:auto;border:1px solid #888;border-radius:7px}
-.preview-table td{vertical-align:top}.old-value{background:#fffdf5}.new-value{background:var(--changed);font-weight:bold}
+.preview-table td{vertical-align:top}.old-value{background:#fffdf5}.new-value{background:var(--changed);font-weight:bold}.preserved-highlight{background:#ffb347;padding:1px 3px;border-radius:3px;font-weight:bold}.preview-aqua{background:#bff7f7;padding:1px 2px;border-radius:2px}
 .status{margin-top:8px;font-size:12px;color:#555}.hidden{display:none!important}.checkbox{display:inline-flex;align-items:center;gap:5px}.small{font-size:11px;color:#666}
 @media(max-width:800px){.controls{grid-template-columns:1fr}.header{flex-direction:column;align-items:flex-start;gap:8px}}
 </style>
@@ -64,7 +64,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 <div class="panel hidden" id="sheetPanel">
 <div class="panel-title">2. Worksheet</div>
-<div class="controls"><label>Worksheet</label><select id="sheetSelect"></select></div>
+<div class="buttons" id="sheetButtons"></div>
 </div>
 
 <div class="panel hidden" id="rulesPanel">
@@ -99,7 +99,7 @@ other font properties (bold, italic, underline, colour, etc.) are retained.
 <label class="checkbox"><input type="checkbox" id="skipNumbers" checked> Leave numbers unchanged</label>
 <label class="checkbox"><input type="checkbox" id="skipDates" checked> Leave dates unchanged</label>
 <label class="checkbox"><input type="checkbox" id="skipFormulas" checked> Leave formulas unchanged</label>
-<label class="checkbox"><input type="checkbox" id="allSheets"> Apply rules to all worksheets</label>
+<label class="checkbox"><input type="checkbox" id="allSheets" checked> Apply rules to all worksheets</label>
 </div>
 </div>
 
@@ -223,24 +223,42 @@ function showSections() {
     populateRules();
 }
 
-function populateSheets() {
-    const select = document.getElementById("sheetSelect");
-    select.innerHTML = "";
+let selectedSheetName = "";
 
-    workbook.worksheets.forEach(sheet => {
-        const option = document.createElement("option");
-        option.value = sheet.name;
-        option.textContent = sheet.name;
-        select.appendChild(option);
+function populateSheets() {
+    const container = document.getElementById("sheetButtons");
+    container.innerHTML = "";
+
+    workbook.worksheets.forEach((sheet, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn-blue sheet-btn";
+        button.textContent = sheet.name;
+        button.dataset.sheet = sheet.name;
+
+        button.addEventListener("click", () => {
+            selectedSheetName = sheet.name;
+            updateSheetButtons();
+            populateRules();
+        });
+
+        container.appendChild(button);
+        if (index === 0) selectedSheetName = sheet.name;
+    });
+
+    updateSheetButtons();
+}
+
+function updateSheetButtons() {
+    document.querySelectorAll(".sheet-btn").forEach(button => {
+        const active = button.dataset.sheet === selectedSheetName;
+        button.classList.toggle("btn-green", active);
+        button.classList.toggle("btn-blue", !active);
     });
 }
 
-document.getElementById("sheetSelect").addEventListener("change", populateRules);
-
 function getWorksheet() {
-    return workbook.getWorksheet(
-        document.getElementById("sheetSelect").value
-    );
+    return workbook.getWorksheet(selectedSheetName);
 }
 
 /* -------------------------------------------------------
@@ -335,6 +353,12 @@ function populateRules() {
 
         tbody.appendChild(tr);
     }
+
+    // Default Sentence Case for Columns B and C.
+    tbody.querySelectorAll(".case-select").forEach(select => {
+        const col = Number(select.dataset.column);
+        if (col === 2 || col === 3) select.value = "sentence";
+    });
 }
 
 function columnLetter(col) {
@@ -633,6 +657,37 @@ document.getElementById("previewBtn").addEventListener("click", () => {
    PREVIEW TABLE
 ------------------------------------------------------- */
 
+function highlightPreviewText(value) {
+    const text = String(value);
+    const list = document.getElementById("preserveCase").checked
+        ? getPreserveList()
+        : [];
+
+    if (!list.length) return escapeHTML(text);
+
+    const sorted = [...list].filter(Boolean).sort((a, b) => b.length - a.length);
+    const regex = new RegExp(
+        sorted.map(escapeRegExp).join("|"),
+        document.getElementById("caseInsensitive").checked ? "gi" : "g"
+    );
+
+    let result = "";
+    let last = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+        const before = text.slice(last, match.index);
+        if (before) result += '<span class="preview-aqua">' + escapeHTML(before) + '</span>';
+        result += '<span class="preserved-highlight">' + escapeHTML(match[0]) + '</span>';
+        last = match.index + match[0].length;
+        if (match[0].length === 0) regex.lastIndex++;
+    }
+
+    const tail = text.slice(last);
+    if (tail) result += '<span class="preview-aqua">' + escapeHTML(tail) + '</span>';
+    return result || escapeHTML(text);
+}
+
 function renderPreview() {
     const tbody = document.querySelector("#previewTable tbody");
     tbody.innerHTML = "";
@@ -649,8 +704,8 @@ function renderPreview() {
             </td>
             <td>${escapeHTML(change.sheet)}</td>
             <td><strong>${escapeHTML(change.cell)}</strong></td>
-            <td class="old-value">${escapeHTML(String(change.original))}</td>
-            <td class="new-value">${escapeHTML(String(change.converted))}</td>
+            <td class="old-value">${highlightPreviewText(change.original)}</td>
+            <td class="new-value">${highlightPreviewText(change.converted)}</td>
         `;
 
         tbody.appendChild(tr);
@@ -852,6 +907,7 @@ document.getElementById("resetBtn").addEventListener("click", resetApp);
 function resetApp() {
     workbook = null;
     currentChanges = [];
+    selectedSheetName = "";
 
     document.getElementById("fileInput").value = "";
     document.getElementById("fileStatus").textContent = "No file loaded";
