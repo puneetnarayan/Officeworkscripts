@@ -360,10 +360,9 @@ function populateRules() {
         tbody.appendChild(tr);
     }
 
-    // Default Sentence Case for Columns B and C.
+    // Default Sentence Case for every column on every worksheet.
     tbody.querySelectorAll(".case-select").forEach(select => {
-        const col = Number(select.dataset.column);
-        if (col === 2 || col === 3) select.value = "sentence";
+        select.value = "sentence";
     });
 }
 
