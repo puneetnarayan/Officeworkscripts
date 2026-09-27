@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Excel Case & Text Normalizer V19</title>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
 --bg:#f7f4fb;--panel:#fff;--panel2:#f1edf8;--border:#6d6875;--text:#292735;
@@ -81,6 +82,7 @@ Preserved words/strings are protected before case conversion. If a preserved wor
 </div>
 <div class="small" style="margin-bottom:7px">Enter words or complete strings separated by commas or new lines. Their spelling will be retained.</div>
 <textarea id="preserveInput">JSW, API, PLC, HMI, VFD, R&D, Hot Strip Mill, LCS, MS, RAL, BHQ, SGB, CRCA, LV, 415V, HV, HT, HV, MV, ISA, KUM, KIADB, CEIG, CIEG, HGMS, HPGR, Longi, Weir Minerals, Mecon, TCE</textarea>
+<div id="supabasePreserveStatus" class="small" style="margin-top:7px;color:#666">Loading saved preserved strings…</div>
 <div class="options" style="margin-top:9px">
 <label class="checkbox"><input type="checkbox" id="preserveCase" checked> Preserve spelling of listed words/strings</label>
 <label class="checkbox"><input type="checkbox" id="caseInsensitive" checked> Match exclusions case-insensitively</label>
@@ -145,8 +147,17 @@ let currentChanges = [];
 let originalFileName = "Excel";
 let defaultPreserveStrings = [];
 let newPreserveStrings = new Set();
+let supabaseClient = null;
+let storedPreserveStrings = new Set();
+const SUPABASE_URL = "https://ccqhvmavmgngevihtcnf.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ajVwLJ-Lb2tHeLFspj7gUQ_jZ_R9ide";
+const PRESERVE_TABLE = "excel_normalizer_preserve_strings";
 
 defaultPreserveStrings = document.getElementById("preserveInput").value.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
+
+if (window.supabase) {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+}
 
 const CASE_OPTIONS = [
     ["none","Leave unchanged"],
@@ -529,6 +540,82 @@ function getPreserveList() {
         .map(x => x.trim())
         .filter(Boolean);
 }
+async function loadSupabasePreserveStrings() {
+    const status = document.getElementById("supabasePreserveStatus");
+    if (!supabaseClient) {
+        status.textContent = "Supabase not available — using local preserved strings.";
+        return;
+    }
+
+    const { data, error } = await supabaseClient
+        .from(PRESERVE_TABLE)
+        .select("value")
+        .order("value");
+
+    if (error) {
+        console.error("Supabase preserve-string load error:", error);
+        status.textContent = "Supabase unavailable — local preserved strings are still active.";
+        return;
+    }
+
+    storedPreserveStrings = new Set((data || []).map(row => row.value).filter(Boolean));
+
+    const input = document.getElementById("preserveInput");
+    const current = getPreserveList();
+    const seen = new Set(current.map(x => x.toLowerCase()));
+
+    storedPreserveStrings.forEach(value => {
+        const key = value.toLowerCase();
+        if (!seen.has(key)) {
+            current.push(value);
+            seen.add(key);
+        }
+    });
+
+    input.value = current.join(", ");
+    updateNewPreserveStrings();
+
+    status.textContent = storedPreserveStrings.size
+        ? `Supabase: ${storedPreserveStrings.size} saved additional string(s) loaded.`
+        : "Supabase connected — no additional strings saved yet.";
+
+    if (workbook) runPreview();
+}
+
+async function savePreserveString(value) {
+    value = String(value || "").trim();
+    if (!value || !supabaseClient) return;
+
+    const key = value.toLowerCase();
+    if (defaultPreserveStrings.some(x => x.toLowerCase() === key) || storedPreserveStrings.has(key)) return;
+
+    const { error } = await supabaseClient
+        .from(PRESERVE_TABLE)
+        .insert({ value });
+
+    if (error && error.code !== "23505") {
+        console.error("Supabase preserve-string save error:", error);
+        return;
+    }
+
+    storedPreserveStrings.add(value);
+
+    const status = document.getElementById("supabasePreserveStatus");
+    status.textContent = `Supabase: "${value}" saved to Strings to Preserve.`;
+}
+
+async function saveDelimitedPreserveStrings() {
+    const raw = document.getElementById("preserveInput").value;
+    const values = raw.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
+
+    for (const value of values) {
+        const key = value.toLowerCase();
+        const isDefault = defaultPreserveStrings.some(x => x.toLowerCase() === key);
+        const isStored = [...storedPreserveStrings].some(x => x.toLowerCase() === key);
+        if (!isDefault && !isStored) await savePreserveString(value);
+    }
+}
+
 function updateNewPreserveStrings() {
     const ci = document.getElementById("caseInsensitive").checked;
     const defaults = new Set(defaultPreserveStrings.map(x => ci ? x.toLowerCase() : x));
@@ -537,11 +624,21 @@ function updateNewPreserveStrings() {
 document.getElementById("preserveInput").addEventListener("input", () => {
     updateNewPreserveStrings();
     if (workbook) runPreview();
+
+    // Save newly completed comma/newline-separated entries.
+    const raw = document.getElementById("preserveInput").value;
+    if (/[\n,]\s*[^\n,]+\s*[,\n]/.test(raw)) saveDelimitedPreserveStrings();
+});
+
+document.getElementById("preserveInput").addEventListener("blur", () => {
+    saveDelimitedPreserveStrings();
 });
 document.getElementById("caseInsensitive").addEventListener("change", () => {
     updateNewPreserveStrings();
     if (workbook) runPreview();
 });
+
+loadSupabasePreserveStrings();
 
 /* -------------------------------------------------------
    OPTIONS / RULES
