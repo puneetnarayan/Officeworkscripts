@@ -41,7 +41,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .stat{padding:7px 12px;border-radius:7px;border:1px solid #777;background:#fafafa;font-size:12px}
 .stat.changed{background:var(--yellow)}.stat.unchanged{background:var(--green)}
 .preview-wrap{max-height:470px;overflow:auto;border:1px solid #888;border-radius:7px}
-.preview-table td{vertical-align:top}.old-value{background:#fffdf5}.new-value{background:var(--changed);font-weight:bold}.preserved-highlight{background:#ffb347;padding:1px 3px;border-radius:3px;font-weight:bold}.preview-aqua{background:#bff7f7;padding:1px 2px;border-radius:2px}
+.preview-table td{vertical-align:top}.old-value{background:#fffdf5}.new-value{background:var(--changed);font-weight:bold}.preserved-highlight{background:#ffb347;padding:1px 3px;border-radius:3px;font-weight:bold}.new-preserved-highlight{background:#57d66b;padding:1px 3px;border-radius:3px;font-weight:bold}.preview-aqua{background:#bff7f7;padding:1px 2px;border-radius:2px}.sheet-separator td{background:#e8def8;border-top:2px solid #777;border-bottom:1px solid #777;padding:8px 10px;cursor:pointer}.sheet-arrow{display:inline-block;width:18px;font-size:12px}.sheet-change-row.hidden-row{display:none}
 .status{margin-top:8px;font-size:12px;color:#555}.hidden{display:none!important}.checkbox{display:inline-flex;align-items:center;gap:5px}.small{font-size:11px;color:#666}
 @media(max-width:800px){.controls{grid-template-columns:1fr}.header{flex-direction:column;align-items:flex-start;gap:8px}}
 </style>
@@ -124,6 +124,7 @@ other font properties (bold, italic, underline, colour, etc.) are retained.
 <div class="buttons" style="margin-bottom:8px">
 <button class="btn-blue" id="selectAllChangesBtn">Select All</button>
 <button class="btn-yellow" id="deselectAllChangesBtn">Deselect All</button>
+<button class="btn-blue" id="collapseAllSheetsBtn">Collapse All</button>
 <span class="small" style="align-self:center">Select the individual changes you want to apply.</span>
 </div>
 <table class="preview-table" id="previewTable">
@@ -142,6 +143,10 @@ other font properties (bold, italic, underline, colour, etc.) are retained.
 let workbook = null;
 let currentChanges = [];
 let originalFileName = "Excel";
+let defaultPreserveStrings = [];
+let newPreserveStrings = new Set();
+
+defaultPreserveStrings = document.getElementById("preserveInput").value.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
 
 const CASE_OPTIONS = [
     ["none","Leave unchanged"],
@@ -205,6 +210,7 @@ async function loadExcelFile(file) {
 
         populateSheets();
         showSections();
+        setTimeout(() => runPreview(), 0);
 
     } catch (error) {
         console.error(error);
@@ -524,6 +530,19 @@ function getPreserveList() {
         .map(x => x.trim())
         .filter(Boolean);
 }
+function updateNewPreserveStrings() {
+    const ci = document.getElementById("caseInsensitive").checked;
+    const defaults = new Set(defaultPreserveStrings.map(x => ci ? x.toLowerCase() : x));
+    newPreserveStrings = new Set(getPreserveList().filter(x => !defaults.has(ci ? x.toLowerCase() : x)).map(x => ci ? x.toLowerCase() : x));
+}
+document.getElementById("preserveInput").addEventListener("input", () => {
+    updateNewPreserveStrings();
+    if (workbook) runPreview();
+});
+document.getElementById("caseInsensitive").addEventListener("change", () => {
+    updateNewPreserveStrings();
+    if (workbook) runPreview();
+});
 
 /* -------------------------------------------------------
    OPTIONS / RULES
@@ -581,7 +600,7 @@ function isProcessableTextCell(cell) {
    PREVIEW
 ------------------------------------------------------- */
 
-document.getElementById("previewBtn").addEventListener("click", () => {
+function runPreview() {
     if (!workbook) return;
 
     currentChanges = [];
@@ -651,7 +670,9 @@ document.getElementById("previewBtn").addEventListener("click", () => {
         changed > 1000
             ? `${changed} cells will change. Preview shows the first 1,000.`
             : `${changed} cell(s) will change.`;
-});
+}
+
+document.getElementById("previewBtn").addEventListener("click", runPreview);
 
 /* -------------------------------------------------------
    PREVIEW TABLE
@@ -659,61 +680,50 @@ document.getElementById("previewBtn").addEventListener("click", () => {
 
 function highlightPreviewText(value) {
     const text = String(value);
-    const list = document.getElementById("preserveCase").checked
-        ? getPreserveList()
-        : [];
-
-    if (!list.length) return escapeHTML(text);
-
-    const sorted = [...list].filter(Boolean).sort((a, b) => b.length - a.length);
-    const regex = new RegExp(
-        sorted.map(escapeRegExp).join("|"),
-        document.getElementById("caseInsensitive").checked ? "gi" : "g"
-    );
-
-    let result = "";
-    let last = 0;
-    let match;
-
+    const list = document.getElementById("preserveCase").checked ? getPreserveList() : [];
+    if (!list.length) return '<span class="preview-aqua">' + escapeHTML(text) + '</span>';
+    const sorted = [...list].filter(Boolean).sort((a,b) => b.length - a.length);
+    const regex = new RegExp(sorted.map(escapeRegExp).join("|"), document.getElementById("caseInsensitive").checked ? "gi" : "g");
+    let result = "", last = 0, match;
     while ((match = regex.exec(text)) !== null) {
         const before = text.slice(last, match.index);
         if (before) result += '<span class="preview-aqua">' + escapeHTML(before) + '</span>';
-        result += '<span class="preserved-highlight">' + escapeHTML(match[0]) + '</span>';
+        const key = document.getElementById("caseInsensitive").checked ? match[0].toLowerCase() : match[0];
+        result += '<span class="' + (newPreserveStrings.has(key) ? 'new-preserved-highlight' : 'preserved-highlight') + '">' + escapeHTML(match[0]) + '</span>';
         last = match.index + match[0].length;
-        if (match[0].length === 0) regex.lastIndex++;
+        if (!match[0].length) regex.lastIndex++;
     }
-
     const tail = text.slice(last);
     if (tail) result += '<span class="preview-aqua">' + escapeHTML(tail) + '</span>';
-    return result || escapeHTML(text);
+    return result || '<span class="preview-aqua">' + escapeHTML(text) + '</span>';
 }
 
 function renderPreview() {
     const tbody = document.querySelector("#previewTable tbody");
     tbody.innerHTML = "";
-
-    currentChanges.forEach((change, index) => {
-        const tr = document.createElement("tr");
-
-        tr.innerHTML = `
-            <td>
-                <input type="checkbox"
-                       class="change-select"
-                       data-index="${index}"
-                       checked>
-            </td>
-            <td>${escapeHTML(change.sheet)}</td>
-            <td><strong>${escapeHTML(change.cell)}</strong></td>
-            <td class="old-value">${highlightPreviewText(change.original)}</td>
-            <td class="new-value">${highlightPreviewText(change.converted)}</td>
-        `;
-
-        tbody.appendChild(tr);
+    const groups = new Map();
+    currentChanges.forEach((change,index) => {
+        if (!groups.has(change.sheet)) groups.set(change.sheet, []);
+        groups.get(change.sheet).push({change,index});
     });
-
+    groups.forEach((items,sheetName) => {
+        const sep = document.createElement("tr");
+        sep.className = "sheet-separator";
+        sep.innerHTML = '<td colspan="5"><span class="sheet-arrow">▼</span> <strong>' + escapeHTML(sheetName) + '</strong> <span class="small">(' + items.length + ' changes)</span></td>';
+        tbody.appendChild(sep);
+        items.forEach(({change,index}) => {
+            const tr = document.createElement("tr");
+            tr.className = "sheet-change-row";
+            tr.innerHTML = '<td><input type="checkbox" class="change-select" data-index="' + index + '" checked></td>' +
+                '<td>' + escapeHTML(change.sheet) + '</td>' +
+                '<td><strong>' + escapeHTML(change.cell) + '</strong></td>' +
+                '<td class="old-value">' + highlightPreviewText(change.original) + '</td>' +
+                '<td class="new-value">' + highlightPreviewText(change.converted) + '</td>';
+            tbody.appendChild(tr);
+        });
+    });
     document.getElementById("selectAllPreview").checked = true;
 }
-
 /* -------------------------------------------------------
    APPLY CHANGES
 ------------------------------------------------------- */
@@ -893,6 +903,27 @@ document.getElementById("selectAllPreview").addEventListener("change", e => {
     document.querySelectorAll(".change-select")
         .forEach(cb => cb.checked = e.target.checked);
 });
+document.getElementById("collapseAllSheetsBtn").addEventListener("click", () => {
+    document.querySelectorAll(".sheet-separator").forEach(separator => {
+        separator.querySelector(".sheet-arrow").textContent = "▶";
+        let row = separator.nextElementSibling;
+        while (row && !row.classList.contains("sheet-separator")) {
+            row.classList.add("hidden-row");
+            row = row.nextElementSibling;
+        }
+    });
+});
+document.querySelector("#previewTable tbody").addEventListener("click", e => {
+    const separator = e.target.closest(".sheet-separator");
+    if (!separator) return;
+    const collapsed = separator.querySelector(".sheet-arrow").textContent === "▶";
+    separator.querySelector(".sheet-arrow").textContent = collapsed ? "▼" : "▶";
+    let row = separator.nextElementSibling;
+    while (row && !row.classList.contains("sheet-separator")) {
+        row.classList.toggle("hidden-row", !collapsed);
+        row = row.nextElementSibling;
+    }
+});
 
 document.getElementById("confirmChangesBtn").addEventListener("click", () => {
     document.getElementById("applyBtn").click();
@@ -908,6 +939,7 @@ function resetApp() {
     workbook = null;
     currentChanges = [];
     selectedSheetName = "";
+    newPreserveStrings = new Set();
 
     document.getElementById("fileInput").value = "";
     document.getElementById("fileStatus").textContent = "No file loaded";
