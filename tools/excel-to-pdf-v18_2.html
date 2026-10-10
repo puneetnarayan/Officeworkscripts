@@ -63,26 +63,11 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .toggleBtn:hover{background:#e4edf6}
 .toggleBtn .arrow{transition:transform .15s;font-size:10px}
 .toggleBtn.open .arrow{transform:rotate(90deg)}
+.analysisBody{margin-top:10px}
 .sidebar .tablewrap{max-height:260px}
 .sidebar #analysis{min-width:0;width:max-content}
 .sidebar #analysis th,.sidebar #analysis td{padding:4px 6px;font-size:10.5px}
 .sidebar #analysis input,.sidebar #analysis select{padding:3px;font-size:10.5px}
-/* The analysis table used to be clipped to the sidebar's own scroll area
-   (overflow:auto on .sidebar), so it never got taller than whatever room
-   was left below it. Opening it as a position:fixed floating panel escapes
-   that clipping - it gets its own scroll instead - while staying anchored
-   to (just slightly wider than) the sidebar's own column, not spreading
-   out over the preview pane. Position is computed in JS
-   (openAnalysisPanel/positionAnalysisPanel). */
-#analysisCard{position:relative}
-.analysisBody{display:none}
-.analysisBody.open{
-  display:block;position:fixed;z-index:200;background:#fff;
-  width:340px;max-width:calc(100vw - 32px);
-  border:1px solid var(--line);border-radius:12px;padding:12px;
-  box-shadow:0 16px 40px rgba(0,0,0,.22);overflow:auto
-}
-.analysisBody.open .tablewrap{max-height:none}
 .main .card{padding:14px 16px}
 .main h3{margin-top:0}
 #progress{width:100%;height:12px;display:none}
@@ -178,7 +163,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
         <button id="analysisToggle" class="toggleBtn" type="button" aria-expanded="false">
           <span>Worksheet Layout Analysis</span><span class="arrow">&#9656;</span>
         </button>
-        <div id="analysisBody" class="analysisBody">
+        <div id="analysisBody" class="analysisBody hidden">
           <div class="small">Changes to Paper, Orientation, Font or Header rows update the preview automatically. Column and row defaults are read from the workbook worksheet settings.</div>
           <div class="tablewrap"><table id="analysis"><thead><tr><th>#</th><th>Worksheet</th><th>Rows</th><th>Cols</th><th>Paper</th><th>Orientation</th><th>Font</th><th>Header rows</th></tr></thead><tbody></tbody></table></div>
         </div>
@@ -654,33 +639,11 @@ function getHeaderRange(x,d){
 }
 function getOpt(){return{margin:Math.max(0,+$("margin").value||0)*PT,pref:+$("prefFont").value||10,min:+$("minFont").value||7,showFilename:$("showFilename").checked,home:$("home").checked,index:$("index").checked,hiFiCapture:$("hiFiCapture").checked,headerRows:String($("headerRows").value||"2-2").trim()||"2-2"}}
 function analyseWorkbook(){if(!wb)return;const opt=getOpt();results=wb.SheetNames.map((name,i)=>{const ws=wb.Sheets[name],d=dims(ws);if(!d)return{i,name,empty:true,paper:"A4",orientation:"portrait",font:opt.pref,headers:0};const x=choose(ws,d,opt);return{...x,i,name,rows:d.rows,cols:d.cols,headers:String($("headerRows").value||"2-2").trim()||"2-2",headerRange:parseHeaderRange($("headerRows").value,d)||parseHeaderRange("2-2",d)}});const body=$("analysis").querySelector("tbody");body.innerHTML="";results.forEach(x=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${x.i+1}</td><td>${esc(x.name)}</td><td>${x.rows||0}</td><td>${x.cols||0}</td><td><select class="paper" data-i="${x.i}"><option ${x.paper==="A4"?"selected":""}>A4</option><option ${x.paper==="A3"?"selected":""}>A3</option></select></td><td><select class="orient" data-i="${x.i}"><option value="portrait" ${x.orientation==="portrait"?"selected":""}>Portrait</option><option value="landscape" ${x.orientation==="landscape"?"selected":""}>Landscape</option></select></td><td><input class="font" data-i="${x.i}" type="number" value="${x.font}" min="5" max="20" style="width:65px"></td><td><input class="hdr" data-i="${x.i}" type="text" value="${esc(x.headers||"2-2")}" placeholder="1-6" style="width:75px"></td>`;body.appendChild(tr)});document.querySelectorAll(".paper,.orient,.font,.hdr").forEach(el=>{el.addEventListener("input",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr")){x.headers=el.value.trim()||"2-2";x.headerRange=parseHeaderRange(x.headers,dims(wb.Sheets[x.name]))||x.headerRange}schedulePreview()});el.addEventListener("change",()=>{const x=results[+el.dataset.i];if(el.classList.contains("paper"))x.paper=el.value;if(el.classList.contains("orient"))x.orientation=el.value;if(el.classList.contains("font"))x.font=Math.max(5,+el.value||5);if(el.classList.contains("hdr")){x.headers=el.value.trim()||"2-2";x.headerRange=parseHeaderRange(x.headers,dims(wb.Sheets[x.name]))||x.headerRange}schedulePreview()})});$("analysisCard").classList.remove("hidden");$("generate").classList.remove("hidden");schedulePreview();status(`Analysis complete. ${results.filter(x=>!x.empty).length} worksheet(s) ready. Preview updates automatically.`)}
-// The analysis panel floats free of the sidebar's own overflow:auto
-// clipping (position:fixed, sized/positioned in JS) so it gets its own
-// scroll instead of being cut off - but it stays anchored to (just
-// slightly wider than) the sidebar's own column, never stretching out
-// over the preview pane. openAnalysisPanel(true) is also called as soon
-// as a column-resize drag starts (see the mousedown handler below), so
-// the panel is guaranteed visible the moment someone drags.
-function positionAnalysisPanel(){
-  const btn=$("analysisToggle"),body=$("analysisBody");
-  if(!body.classList.contains("open"))return;
-  const r=btn.getBoundingClientRect();
-  body.style.left=Math.max(12,r.left)+"px";
-  body.style.top=(r.bottom+8)+"px";
-  body.style.maxHeight=Math.max(160,window.innerHeight-r.bottom-24)+"px";
-}
-function openAnalysisPanel(show){
-  const btn=$("analysisToggle"),body=$("analysisBody");
-  btn.classList.toggle("open",show);
-  btn.setAttribute("aria-expanded",String(show));
-  body.classList.toggle("open",show);
-  if(show)positionAnalysisPanel();
-}
 $("analysisToggle").addEventListener("click",()=>{
-  openAnalysisPanel(!$("analysisBody").classList.contains("open"));
+  const open=$("analysisToggle").classList.toggle("open");
+  $("analysisToggle").setAttribute("aria-expanded",String(open));
+  $("analysisBody").classList.toggle("hidden",!open);
 });
-window.addEventListener("resize",()=>positionAnalysisPanel());
-window.addEventListener("scroll",()=>positionAnalysisPanel(),true);
 let previewTimer=null;
 function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(renderPreview,120)}
 function renderPreview(){
@@ -787,10 +750,6 @@ $("previewPages").addEventListener("mousedown",e=>{
   const handle=e.target.closest(".colResizeHandle");
   if(!handle)return;
   e.preventDefault();
-  // As soon as a drag starts, make sure Worksheet Layout Analysis is visible
-  // (full-width floating panel, not squeezed into the sidebar) so the
-  // updated row/col numbers are visible without an extra click.
-  openAnalysisPanel(true);
   const sheetName=handle.dataset.sheet,col=+handle.dataset.col,dir=handle.dataset.dir||"right";
   const ws=wb.Sheets[sheetName],d=dims(ws);
   if(!ws||!d)return;
