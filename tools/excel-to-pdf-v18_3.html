@@ -84,7 +84,7 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .footer-left{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.footer-right{right:0}
 .sheet-name{font-weight:700;margin-bottom:7px}
 .excel-table{border-collapse:collapse;table-layout:fixed;width:100%;font-family:Arial,Helvetica,sans-serif}
-.excel-table td,.excel-table th{border:0.75px solid #a9b2bc;padding:1px 2px;vertical-align:top;line-height:1.05;white-space:normal;overflow-wrap:break-word;word-break:normal;background-clip:padding-box}
+.excel-table td,.excel-table th{border:0.5px solid #c3cad2;padding:1px 2px;vertical-align:top;line-height:1.05;white-space:normal;overflow-wrap:break-word;word-break:normal;background-clip:padding-box}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
 .small{font-size:12px;color:var(--muted)}
@@ -439,9 +439,9 @@ function cssCell(cell,sheetName,row,col,scale){const s=getExactStyle(cell,sheetN
   // Most real-world sheets never set an explicit border colour (Excel's
   // default "automatic" black), so almost every grid line fell through to
   // the #444 fallback below - reading as a heavy, near-black grid. Thinned
-  // to 0.75px and lightened to a mid grey here; an Excel cell that DOES set
+  // to 0.5px and lightened further to a pale grey here; an Excel cell that DOES set
   // its own border colour is still honoured exactly (excelColorToCss(...)).
-  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#a9b2bc";st.push(`border-${k}:0.75px solid ${bc}`)}});return st.join(";")}
+  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#c3cad2";st.push(`border-${k}:0.5px solid ${bc}`)}});return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
 // Wraps a rendered table with an invisible full-height overlay carrying one
