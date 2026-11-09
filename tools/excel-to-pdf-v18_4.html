@@ -7,21 +7,20 @@
 
 <!-- v18.4: V18.3 plus PDF-only cell borders. The live preview keeps v18.3's
      thin, pale 0.5px/#c3cad2 grid; only the actual downloaded PDF now
-     renders a solid black 1px grid line instead, on every edge uniformly:
-     - Sub-pixel widths (0.35px, then 0.75px) were tried and rejected: below
-       one whole device pixel at the capture scale, a line only gets partial
-       pixel coverage and anti-aliases down to a faint, axis-inconsistent
-       grey regardless of the colour specified. 1px is the smallest width
-       that rasterizes as one crisp, fully-opaque line on both axes.
+     renders a solid black 0.3px grid line instead, on every edge uniformly:
      - Cells with no border at all defined in Excel were falling through to
        a shared base CSS rule that forPdf never touched; that rule now has
        a .pdfBorders-scoped override too (set on the page element itself in
        buildSheet, only for the real capture pages, never the preview).
      - A cell that DOES set its own Excel border colour was still being
-       honoured exactly, which (now that 1px is fully opaque) showed up as
-       a visibly different colour/weight between axes when a sheet colours
-       only some edges (e.g. light column dividers, automatic/black row
-       dividers). forPdf now forces plain black regardless of that colour.
+       honoured exactly, which showed up as a visibly different colour
+       between axes when a sheet colours only some edges (e.g. light
+       column dividers, automatic/black row dividers). forPdf now forces
+       plain black regardless of that colour.
+     - Width went 0.5px (too pale) -> 0.35px -> 0.75px -> 1px (crisp but
+       too thick) -> settled on 0.3px per explicit request, accepting that
+       a sub-pixel width anti-aliases to a slightly lighter grey-black
+       rather than flat #000, in exchange for actually reading as thin.
      See cssCell()'s forPdf parameter.
      v18.3 was: V18.2 plus making sure the thinner/lighter cell border fix is
      verified in the actual downloaded PDF (not just the live preview).
@@ -107,10 +106,10 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
    above and never reach cssCell()'s forPdf override at all - most sheets
    that just show plain gridlines (no boxed cells) are ALL this rule. This
    more specific override makes those gridlines match cssCell()'s PDF-only
-   1px solid black on the actual capture pages (.pdfBorders, set in
+   0.3px solid black on the actual capture pages (.pdfBorders, set in
    buildSheet when !interactive), while leaving the on-screen preview's
    pale 0.5px grid alone. */
-.pdfBorders .excel-table td,.pdfBorders .excel-table th{border-width:1px;border-color:#000}
+.pdfBorders .excel-table td,.pdfBorders .excel-table th{border-width:0.3px;border-color:#000}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
 .small{font-size:12px;color:var(--muted)}
@@ -469,23 +468,19 @@ function cssCell(cell,sheetName,row,col,scale,forPdf){const s=getExactStyle(cell
   // sub-pixel width (0.35px, then 0.75px) was tried and rejected: at less
   // than one full device pixel after html2canvas's capture scale, a line
   // only gets PARTIAL pixel coverage, so the browser anti-aliases it down
-  // to a faint grey no matter what colour is specified - and how much of
-  // that one pixel a horizontal vs. a vertical line actually covers differs
-  // (row edges vs. column edges land on different sub-pixel offsets), which
-  // is exactly why rows looked solid and columns nearly vanished. 1px is
-  // the smallest width that is a whole device pixel at that 2x capture
-  // scale, so it rasterizes as one crisp, fully-opaque line on both axes,
-  // and the fallback colour is plain black, not grey, per explicit request.
-  // On screen, an Excel cell that sets its own border colour is still
-  // honoured exactly (excelColorToCss(...)). In the PDF this is no longer
-  // true on purpose: some real sheets explicitly colour only SOME edges
-  // (e.g. a light theme colour on column dividers, left as "automatic"
-  // black on row dividers), which - now that every border is a full-opacity
-  // 1px line instead of a washed-out hairline - read as a visibly different
-  // weight/colour between the two axes in print. The request is for every
-  // border edge in the PDF to be uniformly black, so forPdf ignores the
+  // to a faint grey no matter what colour is specified. 1px (one whole
+  // device pixel at the 2x capture scale) fixed that, but then read as too
+  // thick/heavy - explicitly asked back down to 0.3px, accepting that a
+  // sub-pixel line anti-aliases to a slightly lighter grey-black rather
+  // than flat #000, in exchange for actually being thin. On screen, an
+  // Excel cell that sets its own border colour is still honoured exactly
+  // (excelColorToCss(...)). In the PDF this is no longer true on purpose:
+  // some real sheets explicitly colour only SOME edges (e.g. a light theme
+  // colour on column dividers, left as "automatic" black on row dividers),
+  // which read as a visibly different colour between axes in print. Every
+  // border edge in the PDF must be uniformly black, so forPdf ignores the
   // cell's own colour entirely rather than honouring it.
-  const bw=forPdf?"1px":"0.5px",bFallback=forPdf?"#000000":"#c3cad2";
+  const bw=forPdf?"0.3px":"0.5px",bFallback=forPdf?"#000000":"#c3cad2";
   ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=forPdf?"#000000":(excelColorToCss(b[k].color)||bFallback);st.push(`border-${k}:${bw} solid ${bc}`)}});return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
