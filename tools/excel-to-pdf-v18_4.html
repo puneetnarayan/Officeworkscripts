@@ -7,13 +7,22 @@
 
 <!-- v18.4: V18.3 plus PDF-only cell borders. The live preview keeps v18.3's
      thin, pale 0.5px/#c3cad2 grid; only the actual downloaded PDF now
-     renders a solid black 1px grid line instead. Sub-pixel widths (0.35px,
-     then 0.75px) were tried and rejected: below one whole device pixel at
-     the capture scale, a line only gets partial pixel coverage and gets
-     anti-aliased down to a faint, axis-inconsistent grey regardless of the
-     colour specified (rows solid, columns nearly invisible, in testing).
-     1px is the smallest width that rasterizes as one crisp, fully-opaque
-     line on both axes. See cssCell()'s forPdf parameter.
+     renders a solid black 1px grid line instead, on every edge uniformly:
+     - Sub-pixel widths (0.35px, then 0.75px) were tried and rejected: below
+       one whole device pixel at the capture scale, a line only gets partial
+       pixel coverage and anti-aliases down to a faint, axis-inconsistent
+       grey regardless of the colour specified. 1px is the smallest width
+       that rasterizes as one crisp, fully-opaque line on both axes.
+     - Cells with no border at all defined in Excel were falling through to
+       a shared base CSS rule that forPdf never touched; that rule now has
+       a .pdfBorders-scoped override too (set on the page element itself in
+       buildSheet, only for the real capture pages, never the preview).
+     - A cell that DOES set its own Excel border colour was still being
+       honoured exactly, which (now that 1px is fully opaque) showed up as
+       a visibly different colour/weight between axes when a sheet colours
+       only some edges (e.g. light column dividers, automatic/black row
+       dividers). forPdf now forces plain black regardless of that colour.
+     See cssCell()'s forPdf parameter.
      v18.3 was: V18.2 plus making sure the thinner/lighter cell border fix is
      verified in the actual downloaded PDF (not just the live preview).
      v18.2 was: V18.1 content-aware AutoFit, plus a Worksheet Layout Analysis
@@ -467,10 +476,17 @@ function cssCell(cell,sheetName,row,col,scale,forPdf){const s=getExactStyle(cell
   // the smallest width that is a whole device pixel at that 2x capture
   // scale, so it rasterizes as one crisp, fully-opaque line on both axes,
   // and the fallback colour is plain black, not grey, per explicit request.
-  // An Excel cell that DOES set its own border colour is still honoured
-  // exactly (excelColorToCss(...)) in both cases.
+  // On screen, an Excel cell that sets its own border colour is still
+  // honoured exactly (excelColorToCss(...)). In the PDF this is no longer
+  // true on purpose: some real sheets explicitly colour only SOME edges
+  // (e.g. a light theme colour on column dividers, left as "automatic"
+  // black on row dividers), which - now that every border is a full-opacity
+  // 1px line instead of a washed-out hairline - read as a visibly different
+  // weight/colour between the two axes in print. The request is for every
+  // border edge in the PDF to be uniformly black, so forPdf ignores the
+  // cell's own colour entirely rather than honouring it.
   const bw=forPdf?"1px":"0.5px",bFallback=forPdf?"#000000":"#c3cad2";
-  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||bFallback;st.push(`border-${k}:${bw} solid ${bc}`)}});return st.join(";")}
+  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=forPdf?"#000000":(excelColorToCss(b[k].color)||bFallback);st.push(`border-${k}:${bw} solid ${bc}`)}});return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
 // Wraps a rendered table with an invisible full-height overlay carrying one
