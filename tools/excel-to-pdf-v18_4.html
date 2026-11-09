@@ -21,6 +21,16 @@
        too thick) -> settled on 0.3px per explicit request, accepting that
        a sub-pixel width anti-aliases to a slightly lighter grey-black
        rather than flat #000, in exchange for actually reading as thin.
+     - Internal grid lines still kept reading thicker than the table's own
+       outer edge no matter the width: every cell was declaring all four
+       of its own sides, so each internal line was two overlapping
+       declarations (one per neighbouring cell) meant to collapse into
+       one via border-collapse - a merge html2canvas does not reliably
+       perform. Fixed structurally: every cell now declares only its own
+       right+bottom edge (cssCell's forPdf branch), and the single top+left
+       frame line is drawn once on the <table> itself (.pdfBorders rule),
+       never per-cell - so every line in the grid has exactly one
+       declaration, outer edge included, with nothing left to double up.
      See cssCell()'s forPdf parameter.
      v18.3 was: V18.2 plus making sure the thinner/lighter cell border fix is
      verified in the actual downloaded PDF (not just the live preview).
@@ -102,14 +112,19 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .sheet-name{font-weight:700;margin-bottom:7px}
 .excel-table{border-collapse:collapse;table-layout:fixed;width:100%;font-family:Arial,Helvetica,sans-serif}
 .excel-table td,.excel-table th{border:0.5px solid #c3cad2;padding:1px 2px;vertical-align:top;line-height:1.05;white-space:normal;overflow-wrap:break-word;word-break:normal;background-clip:padding-box}
-/* Cells with no border explicitly set in Excel fall through to the rule
-   above and never reach cssCell()'s forPdf override at all - most sheets
-   that just show plain gridlines (no boxed cells) are ALL this rule. This
-   more specific override makes those gridlines match cssCell()'s PDF-only
-   0.3px solid black on the actual capture pages (.pdfBorders, set in
-   buildSheet when !interactive), while leaving the on-screen preview's
-   pale 0.5px grid alone. */
-.pdfBorders .excel-table td,.pdfBorders .excel-table th{border-width:0.3px;border-color:#000}
+/* .pdfBorders is set on the page element only for the actual PDF-capture
+   pages (buildSheet, when !interactive), never the on-screen preview. Every
+   cssCell()-produced cell already declares its own right+bottom edge only
+   (see cssCell's forPdf branch) - these two rules are the single top+left
+   frame line nobody's right/bottom reaches (declared once, on the table
+   itself, not per-cell) plus a defensive fallback matching that same
+   scheme for any cell content that bypasses cssCell(). Declaring each grid
+   line exactly once, instead of letting border-collapse merge a pair of
+   same-valued declarations from neighbouring cells, sidesteps html2canvas's
+   weak border-collapse support, which was rendering internal lines
+   visibly heavier than the table's single-declaration outer edge. */
+.pdfBorders .excel-table{border-top:0.3px solid #000;border-left:0.3px solid #000}
+.pdfBorders .excel-table td,.pdfBorders .excel-table th{border-top:none;border-left:none;border-right:0.3px solid #000;border-bottom:0.3px solid #000}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:0.3px solid #000;padding:7pt;text-align:left}.index-table th{background:#eee}
 .small{font-size:12px;color:var(--muted)}
@@ -464,24 +479,37 @@ function cssCell(cell,sheetName,row,col,scale,forPdf){const s=getExactStyle(cell
   // Most real-world sheets never set an explicit border colour (Excel's
   // default "automatic" black), so almost every grid line fell through to
   // the fallback below. On screen (forPdf false) this stays the thin, pale
-  // 0.5px/#c3cad2 grid. For the actual downloaded PDF (forPdf true), any
-  // sub-pixel width (0.35px, then 0.75px) was tried and rejected: at less
-  // than one full device pixel after html2canvas's capture scale, a line
-  // only gets PARTIAL pixel coverage, so the browser anti-aliases it down
-  // to a faint grey no matter what colour is specified. 1px (one whole
-  // device pixel at the 2x capture scale) fixed that, but then read as too
-  // thick/heavy - explicitly asked back down to 0.3px, accepting that a
-  // sub-pixel line anti-aliases to a slightly lighter grey-black rather
-  // than flat #000, in exchange for actually being thin. On screen, an
-  // Excel cell that sets its own border colour is still honoured exactly
-  // (excelColorToCss(...)). In the PDF this is no longer true on purpose:
-  // some real sheets explicitly colour only SOME edges (e.g. a light theme
-  // colour on column dividers, left as "automatic" black on row dividers),
-  // which read as a visibly different colour between axes in print. Every
-  // border edge in the PDF must be uniformly black, so forPdf ignores the
-  // cell's own colour entirely rather than honouring it.
-  const bw=forPdf?"0.3px":"0.5px",bFallback=forPdf?"#000000":"#c3cad2";
-  ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=forPdf?"#000000":(excelColorToCss(b[k].color)||bFallback);st.push(`border-${k}:${bw} solid ${bc}`)}});return st.join(";")}
+  // 0.5px/#c3cad2 grid, with every cell declaring all four of its own
+  // sides and border-collapse:collapse merging each shared edge down to
+  // one line - standard, and fine, because real browser layout resolves
+  // that merge correctly.
+  if(forPdf){
+    // The PDF capture path (html2canvas) does NOT reliably do the same
+    // merge: with every cell declaring all four sides (as above), every
+    // INTERNAL grid line is actually two overlapping 0.3px declarations,
+    // one from each neighbouring cell, that are supposed to collapse into
+    // one rendered line. html2canvas's border-collapse support is known to
+    // be weak, and in testing that double declaration consistently
+    // rasterized heavier/darker than the table's own outer edge, which
+    // only ever has ONE declaration (no neighbour on the far side). No
+    // width or colour tweak fixes that - it's a structural doubling, not a
+    // sub-pixel rounding issue. Fixed by declaring each grid line exactly
+    // once, everywhere: every cell draws only its own right+bottom edge
+    // (which is also the next cell's left/top edge - one declaration,
+    // shared), and the lone top+left frame line nobody's right/bottom
+    // reaches is drawn once on the <table> itself (see the .pdfBorders
+    // CSS rule), never per-cell. This also means forPdf no longer depends
+    // on what Excel defined - every cell gets a complete, uniform black
+    // grid, overriding the cell's own border colour, which previously
+    // caused yet another visible inconsistency when a sheet coloured only
+    // some edges (e.g. light column dividers, automatic/black row
+    // dividers).
+    st.push("border-top:none");st.push("border-left:none");
+    st.push("border-right:0.3px solid #000");st.push("border-bottom:0.3px solid #000");
+  }else{
+    ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||"#c3cad2";st.push(`border-${k}:0.5px solid ${bc}`)}});
+  }
+  return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
 // Wraps a rendered table with an invisible full-height overlay carrying one
