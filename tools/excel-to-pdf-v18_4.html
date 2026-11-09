@@ -7,10 +7,13 @@
 
 <!-- v18.4: V18.3 plus PDF-only cell borders. The live preview keeps v18.3's
      thin, pale 0.5px/#c3cad2 grid; only the actual downloaded PDF now
-     renders a thinner-but-sharper, somewhat darker grid line (0.35px,
-     #8d97a2), since html2canvas was rasterizing the paler 0.5px line
-     visibly thicker/blurrier in the PDF than it ever looked on screen.
-     See cssCell()'s forPdf parameter.
+     renders a solid black 1px grid line instead. Sub-pixel widths (0.35px,
+     then 0.75px) were tried and rejected: below one whole device pixel at
+     the capture scale, a line only gets partial pixel coverage and gets
+     anti-aliased down to a faint, axis-inconsistent grey regardless of the
+     colour specified (rows solid, columns nearly invisible, in testing).
+     1px is the smallest width that rasterizes as one crisp, fully-opaque
+     line on both axes. See cssCell()'s forPdf parameter.
      v18.3 was: V18.2 plus making sure the thinner/lighter cell border fix is
      verified in the actual downloaded PDF (not just the live preview).
      v18.2 was: V18.1 content-aware AutoFit, plus a Worksheet Layout Analysis
@@ -91,6 +94,14 @@ button{border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:point
 .sheet-name{font-weight:700;margin-bottom:7px}
 .excel-table{border-collapse:collapse;table-layout:fixed;width:100%;font-family:Arial,Helvetica,sans-serif}
 .excel-table td,.excel-table th{border:0.5px solid #c3cad2;padding:1px 2px;vertical-align:top;line-height:1.05;white-space:normal;overflow-wrap:break-word;word-break:normal;background-clip:padding-box}
+/* Cells with no border explicitly set in Excel fall through to the rule
+   above and never reach cssCell()'s forPdf override at all - most sheets
+   that just show plain gridlines (no boxed cells) are ALL this rule. This
+   more specific override makes those gridlines match cssCell()'s PDF-only
+   1px solid black on the actual capture pages (.pdfBorders, set in
+   buildSheet when !interactive), while leaving the on-screen preview's
+   pale 0.5px grid alone. */
+.pdfBorders .excel-table td,.pdfBorders .excel-table th{border-width:1px;border-color:#000}
 .index-page{position:relative;background:#fff;padding:54pt;font-family:Arial,sans-serif}
 .index-table{border-collapse:collapse;width:100%;margin-top:22pt}.index-table td,.index-table th{border:1px solid #555;padding:7pt;text-align:left}.index-table th{background:#eee}
 .small{font-size:12px;color:var(--muted)}
@@ -445,14 +456,20 @@ function cssCell(cell,sheetName,row,col,scale,forPdf){const s=getExactStyle(cell
   // Most real-world sheets never set an explicit border colour (Excel's
   // default "automatic" black), so almost every grid line fell through to
   // the fallback below. On screen (forPdf false) this stays the thin, pale
-  // 0.5px/#c3cad2 grid. The actual downloaded PDF (forPdf true) uses a
-  // thinner-but-sharper, somewhat darker line instead: html2canvas
-  // rasterizes hairline borders at the capture scale, and the paler 0.5px
-  // line was coming out visibly thicker/fuzzier in the PDF than on screen,
-  // not thinner - a slightly darker, crisper line reads as thinner there.
+  // 0.5px/#c3cad2 grid. For the actual downloaded PDF (forPdf true), any
+  // sub-pixel width (0.35px, then 0.75px) was tried and rejected: at less
+  // than one full device pixel after html2canvas's capture scale, a line
+  // only gets PARTIAL pixel coverage, so the browser anti-aliases it down
+  // to a faint grey no matter what colour is specified - and how much of
+  // that one pixel a horizontal vs. a vertical line actually covers differs
+  // (row edges vs. column edges land on different sub-pixel offsets), which
+  // is exactly why rows looked solid and columns nearly vanished. 1px is
+  // the smallest width that is a whole device pixel at that 2x capture
+  // scale, so it rasterizes as one crisp, fully-opaque line on both axes,
+  // and the fallback colour is plain black, not grey, per explicit request.
   // An Excel cell that DOES set its own border colour is still honoured
   // exactly (excelColorToCss(...)) in both cases.
-  const bw=forPdf?"0.35px":"0.5px",bFallback=forPdf?"#8d97a2":"#c3cad2";
+  const bw=forPdf?"1px":"0.5px",bFallback=forPdf?"#000000":"#c3cad2";
   ["top","right","bottom","left"].forEach(k=>{if(b[k]?.style&&b[k].style!=="none"){const bc=excelColorToCss(b[k].color)||bFallback;st.push(`border-${k}:${bw} solid ${bc}`)}});return st.join(";")}
 function mergedMap(ws){const m=new Map(),covered=new Set();for(const rg of ws["!merges"]||[]){const a=typeof rg==="string"?XLSX.utils.decode_range(rg):rg;if(!a)continue;const key=`${a.s.r}:${a.s.c}`;m.set(key,{rs:a.e.r-a.s.r+1,cs:a.e.c-a.s.c+1});for(let r=a.s.r;r<=a.e.r;r++)for(let c=a.s.c;c<=a.e.c;c++)if(r!==a.s.r||c!==a.s.c)covered.add(`${r}:${c}`)}return{m,covered}}
 function visibleCols(ws,d){const out=[];for(let c=d.r.s.c;c<=d.r.e.c;c++){if(colPx(ws,c)>0)out.push(c)}return out}
@@ -636,7 +653,7 @@ function buildSheet(x,opt,startNo,interactive){const ws=wb.Sheets[x.name],d=dims
   // part of the document, and keeping the captured page's DOM identical to
   // a plain table avoids handing html2canvas anything unusual to trip over.
   const place=interactive?(el)=>wrapInteractive(el,ws,visCols):(el)=>el;
-  const headerRange=getHeaderRange(x,d);let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[],pageIdxInSheet=0;while(cur<=end){let used=0;if(!first&&headerRange){for(let r=headerRange.start;r<=headerRange.end;r++)used+=hpt(r)}const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);const forPdf=!interactive;if(!first&&headerRange){const headerTable=makeTable(ws,d,headerRange.start,headerRange.end,x.font,scale,visCols,forPdf);pg.body.appendChild(place(headerTable))}const dataTable=makeTable(ws,d,a,cur-1,x.font,scale,visCols,forPdf);pg.body.appendChild(place(dataTable));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&!!headerRange,pageIdxInSheet});no++;first=false;pageIdxInSheet++}return out}
+  const headerRange=getHeaderRange(x,d);let cur=d.r.s.r,end=d.r.e.r,no=startNo,first=true,out=[],pageIdxInSheet=0;while(cur<=end){let used=0;if(!first&&headerRange){for(let r=headerRange.start;r<=headerRange.end;r++)used+=hpt(r)}const a=cur;while(cur<=end){const h=hpt(cur);if(used+h>usable&&cur>a)break;used+=h;cur++}const footer=(opt.showFilename?fileObj.name+" / ":"")+x.name,pg=pageDiv(sz,opt.margin,footer,no,opt.home);const forPdf=!interactive;if(forPdf)pg.page.classList.add("pdfBorders");const title=document.createElement("div");title.className="sheet-name";title.style.fontSize=Math.max(10,x.font+2)+"pt";title.textContent=x.name;pg.body.appendChild(title);if(!first&&headerRange){const headerTable=makeTable(ws,d,headerRange.start,headerRange.end,x.font,scale,visCols,forPdf);pg.body.appendChild(place(headerTable))}const dataTable=makeTable(ws,d,a,cur-1,x.font,scale,visCols,forPdf);pg.body.appendChild(place(dataTable));out.push({el:pg.page,x,no,sheet:x.name,sz,repeat:!first&&!!headerRange,pageIdxInSheet});no++;first=false;pageIdxInSheet++}return out}
 function createIndexPage(starts,opt,totalPages){const ix=document.createElement("div");ix.className="index-page pdf-page";ix.style.width=PAPERS.A4[0]+"pt";ix.style.height=PAPERS.A4[1]+"pt";const title=document.createElement("h1");title.textContent="INDEX";title.className="index-title";ix.appendChild(title);const fn=document.createElement("div");fn.className="index-filename";fn.textContent=fileObj.name;ix.appendChild(fn);const instr=document.createElement("div");instr.className="index-instruction";instr.textContent="Click the light blue hyperlinks to navigate to the relevant page. Press the HOME button to return to the Index page.";ix.appendChild(instr);const t=document.createElement("table");t.className="index-table";t.innerHTML="<tr><th>#</th><th>Worksheet</th><th>Starts at Page</th></tr>";starts.forEach((s,i)=>{const r=document.createElement("tr");r.innerHTML=`<td>${i+1}</td><td><a href="#">${esc(s.name)}</a></td><td><a href="#">${s.no}</a></td>`;r.dataset.page=s.no;t.appendChild(r)});ix.appendChild(t);const ts=document.createElement("div");ts.className="index-timestamp";ts.textContent="Generated: "+new Date().toLocaleString();ix.appendChild(ts);return ix}
 function parseHeaderRange(value,d){
   const raw=String(value??"").trim();
