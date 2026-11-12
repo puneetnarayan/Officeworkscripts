@@ -956,9 +956,16 @@ function drawVectorPage(pdf,page){
   let y=bodyY+titleH;
   if(headerRange)y=drawTableBlock(pdf,ws,d,headerRange.start,headerRange.end,scale,visCols,rowHeightsAll,rowBaseR,colGeom,bodyX,y);
   drawTableBlock(pdf,ws,d,dataStart,dataEnd,scale,visCols,rowHeightsAll,rowBaseR,colGeom,bodyX,y);
-  pdf.setFont(PDF_FONT_FAMILY,"normal");pdf.setFontSize(10);pdf.setTextColor(51,51,51);
-  pdf.text(footer,bodyX,sz.h-9,{maxWidth:sz.w-2*margin-95});
-  pdf.text("Page "+no,sz.w-margin,sz.h-9,{align:"right"});
+  // The footer used to sit at a fixed sz.h-9 (9pt from the absolute page
+  // edge) regardless of the page's own margin - comfortably visible in a PDF
+  // viewer, but well inside most printers' unprintable border, so it got
+  // physically clipped on paper. Anchor it to the configured margin instead
+  // (with a sane floor for a 0/near-0 margin), and trim the font slightly so
+  // it has room to clear that edge even on a tight margin.
+  const footerY=sz.h-Math.max(margin,24)-10;
+  pdf.setFont(PDF_FONT_FAMILY,"normal");pdf.setFontSize(8.5);pdf.setTextColor(51,51,51);
+  pdf.text(footer,bodyX,footerY,{maxWidth:sz.w-2*margin-95});
+  pdf.text("Page "+no,sz.w-margin,footerY,{align:"right"});
   if(home){
     pdf.setFillColor(217,105,21);pdf.rect(sz.w-80,5,75,25,"F");
     pdf.setFont(PDF_FONT_FAMILY,"bold");pdf.setFontSize(9);pdf.setTextColor(255,255,255);
